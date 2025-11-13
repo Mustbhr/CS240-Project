@@ -1,0 +1,82 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# PyTorch
+*.pth
+*.pt
+checkpoints/
+*.ckpt
+
+# DeepSpeed
+.deepspeed_env
+*deepspeed*.log
+
+# Logs and Results
+logs/
+*.log
+results/*.csv
+results/*.json
+results/*.png
+wandb/
+tensorboard/
+
+# Data (don't commit large datasets)
+data/raw/
+data/processed/
+*.tar.gz
+*.zip
+
+# Cluster specific
+hostfile
+nodelist.txt
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Config files with sensitive info
+configs/cluster_config.yaml
+configs/secrets.yaml
+
+# Keep directory structure
+!results/.gitkeep
+!data/.gitkeep
+

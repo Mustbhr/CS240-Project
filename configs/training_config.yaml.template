@@ -1,0 +1,72 @@
+# Training Configuration Template
+# Copy this to training_config.yaml and adjust for your setup
+
+# Model Configuration
+model:
+  name: "gpt2"  # or custom model
+  hidden_size: 768
+  num_layers: 12
+  num_heads: 12
+  vocab_size: 50257
+
+# Training Hyperparameters
+training:
+  batch_size: 32
+  gradient_accumulation_steps: 4
+  learning_rate: 5.0e-5
+  max_iterations: 10000
+  warmup_steps: 500
+  weight_decay: 0.01
+
+# Dataset Configuration
+dataset:
+  name: "wikipedia"
+  version: "20220301.en"
+  max_seq_length: 512
+  train_split: 0.95
+  preprocessing:
+    num_workers: 4
+
+# Checkpointing Configuration
+checkpointing:
+  # Gemini in-memory checkpointing
+  enabled: true
+  frequency: 100  # checkpoint every N iterations
+  keep_last_n: 3  # number of checkpoints to keep
+  
+  # Replication settings
+  replication_factor: 2  # m=2 (primary + 1 replica)
+  replication_async: true
+  
+  # Baseline NFS (for comparison)
+  baseline_nfs_path: "/path/to/nfs/checkpoints"
+  baseline_enabled: false
+
+# Distributed Training
+distributed:
+  backend: "nccl"
+  init_method: "tcp://master_node:29500"
+  world_size: 4
+  use_deepspeed: true
+  
+# DeepSpeed Configuration
+deepspeed:
+  zero_optimization:
+    stage: 3
+  gradient_clipping: 1.0
+  fp16:
+    enabled: true
+
+# Logging and Monitoring
+logging:
+  log_dir: "./logs"
+  tensorboard: true
+  wandb: false
+  log_interval: 10  # log every N iterations
+
+# Failure Injection (for testing)
+failure_injection:
+  enabled: false
+  target_node: null
+  failure_iteration: null
+
