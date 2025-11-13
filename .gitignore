@@ -77,8 +77,11 @@ temp/
 configs/cluster_config.yaml
 configs/secrets.yaml
 
-# Setup guides (keep local only)
+# Setup guides and project docs (keep local only)
 GITHUB_SETUP.md
+CONTRIBUTING.md
+QUICKSTART.md
+Gemini Reproduction Project Research.pdf
 
 # Keep directory structure
 !results/.gitkeep
