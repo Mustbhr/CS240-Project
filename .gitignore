@@ -62,6 +62,7 @@ data/raw/
 data/processed/
 *.tar.gz
 *.zip
+*.pdf
 
 # Cluster specific
 hostfile
@@ -75,6 +76,9 @@ temp/
 # Config files with sensitive info
 configs/cluster_config.yaml
 configs/secrets.yaml
+
+# Setup guides (keep local only)
+GITHUB_SETUP.md
 
 # Keep directory structure
 !results/.gitkeep
