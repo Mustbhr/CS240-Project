@@ -8,7 +8,7 @@
 
 ## Team Members
 - Mustafa Albahrani (mustafa.albahrani@kaust.edu.sa)
-- Mohammed Alkhalifah (mohammed.alkhalifah@kaust.edu.sa)
+- Mohammed Alkhalifah (mohammad.alkhalifah@kaust.edu.sa)
 
 ## Project Overview
 
