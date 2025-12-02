@@ -2,5 +2,17 @@
 Training module for distributed training loops
 """
 
-# Placeholder for training implementations
+from .baseline_trainer import (
+    BaselineTrainer,
+    TrainingConfig,
+    TrainingMetrics,
+    SimpleLanguageModel
+)
+
+__all__ = [
+    'BaselineTrainer',
+    'TrainingConfig',
+    'TrainingMetrics',
+    'SimpleLanguageModel'
+]
 

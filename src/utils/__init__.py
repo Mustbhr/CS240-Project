@@ -2,5 +2,19 @@
 Utility functions and helpers
 """
 
-# Placeholder for utility implementations
+from .data_loader import (
+    SyntheticDataset,
+    WikipediaDataset,
+    create_dataloader,
+    create_dataset,
+    get_tokenizer
+)
+
+__all__ = [
+    'SyntheticDataset',
+    'WikipediaDataset',
+    'create_dataloader',
+    'create_dataset',
+    'get_tokenizer'
+]
 
