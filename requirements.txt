@@ -1,34 +1,43 @@
+# =============================================
+# GEMINI PROJECT - Requirements
+# =============================================
+# Install with: pip install -r requirements.txt
+#
+# Note: Install PyTorch separately first:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+# =============================================
+
 # Core Deep Learning Framework
-torch>=2.0.0
-torchvision>=0.15.0
-
-# Distributed Training
-deepspeed>=0.10.0
-transformers>=4.30.0
-
-# Communication and Coordination
-python-etcd>=0.4.5
-mpi4py>=3.1.0
+# (Install PyTorch manually with CUDA support - see note above)
+# torch>=2.0.0
+# torchvision>=0.15.0
 
 # Data Handling
-datasets>=2.14.0
 numpy>=1.24.0
-pandas>=2.0.0
-
-# Configuration Management
-pyyaml>=6.0
-omegaconf>=2.3.0
-
-# Monitoring and Logging
-tensorboard>=2.13.0
-wandb>=0.15.0
 tqdm>=4.65.0
 
-# Utilities
+# Configuration
+pyyaml>=6.0
+
+# Monitoring and Logging
 psutil>=5.9.0
-requests>=2.31.0
+wandb>=0.15.0
 
 # Testing
 pytest>=7.4.0
-pytest-timeout>=2.1.0
 
+# =============================================
+# OPTIONAL - Install later when needed
+# =============================================
+
+# For Wikipedia dataset (install if using real data):
+# pip install datasets transformers
+
+# For distributed coordination (install when implementing replication):
+# pip install etcd3
+
+# For DeepSpeed ZeRO optimization (install for production):
+# pip install deepspeed
+
+# For TensorBoard (alternative to wandb):
+# pip install tensorboard
