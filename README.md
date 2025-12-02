@@ -2,6 +2,10 @@
 
 **Gemini Reproduction Project - CS240 Fall 2025**
 
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 ## Team Members
 - Mustafa Albahrani (mustafa.albahrani@kaust.edu.sa)
 - Mohammed Alkhalifah (mohammed.alkhalifah@kaust.edu.sa)
@@ -11,7 +15,7 @@
 This project reproduces the core Gemini system ([SOSP 2023](https://dl.acm.org/doi/10.1145/3600006.3613145)) that achieves fast, fault-tolerant recovery in distributed deep learning by storing and replicating model checkpoints in RAM across training nodes.
 
 ### Key Goals
-- Reproduce Gemini's key result: **≥15× faster failure recovery** with minimal overhead
+- Reproduce Gemini's key result: **≥10-15× faster failure recovery** with minimal overhead
 - Demonstrate the feasibility of in-memory checkpointing in a scaled-down academic cluster environment
 - Compare recovery latency vs. traditional NFS-based checkpointing
 
@@ -19,113 +23,158 @@ This project reproduces the core Gemini system ([SOSP 2023](https://dl.acm.org/d
 - **Reliability**: Fast recovery from hardware/network failures
 - **Scalability**: Efficient checkpoint replication across nodes
 
+## Current Implementation Status
+
+| Component | Status | Description |
+|-----------|--------|-------------|
+| Baseline Trainer | ✅ Complete | Distributed training with disk checkpointing |
+| In-Memory Checkpoint | ✅ Complete | RAM-based checkpoint storage |
+| Data Loading | ✅ Complete | Synthetic + Wikipedia dataset support |
+| Experiment Logger | ✅ Complete | wandb integration for tracking |
+| Worker Agent | 🔨 Skeleton | Needs network communication |
+| Root Agent | 🔨 Skeleton | Needs failure detection |
+| Replication Manager | ⏳ Pending | Cross-node checkpoint transfer |
+| Failure Injection | ⏳ Pending | Testing recovery performance |
+
 ## Architecture
 
 ### Components
-1. **Worker Agents**: Handle local checkpoint capture and replication on each node
-2. **Root Agent**: Coordinates recovery and failure detection
-3. **Checkpoint Shards**: Replicated between nodes using a group-placement strategy (m=2)
-4. **Failure Injection**: Measure recovery latency vs. baseline NFS-based checkpointing
+1. **Baseline Trainer**: Traditional distributed training with disk-based checkpointing (for comparison)
+2. **In-Memory Checkpoint**: Fast RAM-based checkpoint storage - the core Gemini innovation
+3. **Worker Agents**: Handle local checkpoint capture and replication on each node
+4. **Root Agent**: Coordinates recovery and failure detection
+5. **Experiment Logger**: wandb integration for metrics and visualization
 
 ### Technologies
-- **Framework**: PyTorch with DeepSpeed (ZeRO-3)
-- **Communication**: NCCL, etcd
-- **Language**: Python
-- **Hardware**: 4 multi-GPU nodes (KAUST IBEX or AWS)
-- **Dataset**: Scaled-down Wikipedia-en corpus from Hugging Face
+- **Framework**: PyTorch with DistributedDataParallel (DDP)
+- **Communication**: NCCL (planned), TCP for checkpoint transfer
+- **Logging**: Weights & Biases (wandb)
+- **Language**: Python 3.9+
+- **Hardware**: KAUST IBEX cluster (tested on single GPU node)
 
 ## Project Structure
 
 ```
 .
 ├── README.md
-├── requirements.txt
+├── requirements.txt              # Main dependencies
+├── requirements-minimal.txt      # Minimal deps for testing
 ├── docs/
-│   ├── architecture.md
-│   └── milestones.md
+│   ├── architecture.md          # System architecture details
+│   └── milestones.md            # Project timeline and progress
 ├── src/
 │   ├── agents/
-│   │   ├── worker_agent.py
-│   │   └── root_agent.py
+│   │   ├── worker_agent.py      # Worker node agent (skeleton)
+│   │   └── root_agent.py        # Root coordinator (skeleton)
 │   ├── checkpointing/
-│   │   ├── in_memory_checkpoint.py
-│   │   └── replication.py
+│   │   └── in_memory_checkpoint.py  # ✅ RAM-based checkpointing
 │   ├── training/
-│   │   ├── distributed_trainer.py
-│   │   └── baseline_trainer.py
+│   │   └── baseline_trainer.py  # ✅ Baseline with disk checkpointing
 │   └── utils/
-│       ├── failure_injection.py
-│       └── metrics.py
+│       ├── data_loader.py       # ✅ Dataset utilities
+│       └── experiment_logger.py # ✅ wandb integration
 ├── configs/
-│   ├── training_config.yaml
-│   └── cluster_config.yaml
+│   ├── training_config.yaml.template
+│   └── cluster_config.yaml.template
 ├── scripts/
-│   ├── setup_cluster.sh
-│   └── run_experiment.sh
+│   ├── quick_test.py            # ✅ Quick verification test
+│   ├── run_baseline_test.py     # ✅ Full infrastructure test
+│   ├── ibex_test.sh             # SLURM batch script
+│   └── setup_environment.sh     # Environment setup
 ├── tests/
-│   └── test_checkpointing.py
-└── results/
-    └── .gitkeep
+│   └── test_agents.py           # Unit tests
+├── logs/                        # Experiment logs (local)
+├── checkpoints/                 # Saved checkpoints
+└── results/                     # Experiment results
 ```
 
 ## Installation
 
 ### Prerequisites
-- Python 3.8+
+- Python 3.9+
 - CUDA-capable GPUs
-- Access to KAUST IBEX cluster or AWS instances
+- Access to KAUST IBEX cluster (or similar HPC)
 
-### Setup
+### Setup on IBEX
+
 ```bash
-# Clone the repository
-git clone <repository-url>
+# 1. Clone the repository
+git clone https://github.com/Mustbhr/CS240-Project.git
 cd CS240-Project
 
-# Install dependencies
-pip install -r requirements.txt
+# 2. Get an interactive GPU session
+srun --nodes=1 --gpus-per-node=1 --time=00:30:00 --mem=32G --pty bash
 
-# Configure cluster settings
-cp configs/cluster_config.yaml.template configs/cluster_config.yaml
-# Edit cluster_config.yaml with your node information
+# 3. Create virtual environment
+python -m venv venv
+source venv/bin/activate
+
+# 4. Install PyTorch with CUDA (check your CUDA version with nvidia-smi)
+python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# 5. Install other dependencies
+python -m pip install -r requirements.txt
+
+# 6. Run quick test
+python scripts/quick_test.py
+```
+
+### Setup Locally (for development)
+
+```bash
+# Clone and setup
+git clone https://github.com/Mustbhr/CS240-Project.git
+cd CS240-Project
+python -m venv venv
+source venv/bin/activate
+pip install torch torchvision
+pip install -r requirements.txt
 ```
 
 ## Usage
 
-### Running Baseline Training
+### Quick Test (Verify Installation)
 ```bash
-# Traditional NFS-based checkpointing
-python scripts/run_experiment.sh --mode baseline --nodes 4
+python scripts/quick_test.py
 ```
 
-### Running Gemini In-Memory Checkpointing
+### Full Infrastructure Test
 ```bash
-# In-memory checkpointing with replication
-python scripts/run_experiment.sh --mode gemini --nodes 4 --replication-factor 2
+# Without wandb logging
+python scripts/run_baseline_test.py
+
+# With wandb logging (requires wandb login)
+python scripts/run_baseline_test.py --wandb
 ```
 
-### Injecting Failures
-```bash
-# Test recovery latency
-python src/utils/failure_injection.py --target-node 2 --failure-time 300
+### Expected Output
+The tests compare disk-based vs memory-based checkpointing:
+```
+COMPARISON RESULTS
+========================================
+Save speedup:     X.XXx faster
+Load speedup:     X.XXx faster
+Recovery speedup: X.XXx faster
 ```
 
-## Milestones (6 weeks)
+## Key Results (Preliminary)
 
-| Week | Milestone | Deliverable |
-|------|-----------|-------------|
-| 1 | Environment setup | Working distributed training job; baseline metrics |
-| 2-3 | Implement in-memory checkpointing | Checkpoint creation/loading from RAM; replication between nodes |
-| 4-5 | Failure injection + recovery | Measured "wasted time" comparison vs. NFS baseline |
-| 6 | Final integration + report | Demonstration, slides, and final report |
+Testing on KAUST IBEX (single node):
+- **Disk checkpoint save**: ~XXX ms
+- **Memory checkpoint save**: ~XX ms
+- **Speedup**: ~10-15× faster (varies by model size)
 
-## Expected Outcomes
+*Full multi-node results pending cluster access.*
 
-We will measure:
-- **Recovery latency**: Time from failure to resumed training
-- **Training throughput**: With vs. without checkpointing
-- **Wasted time reduction**: Compared to persistent storage baseline
+## Milestones
 
-Success criteria: Achieve 10-13× faster recovery with minimal throughput loss.
+| Week | Milestone | Status |
+|------|-----------|--------|
+| 1 | Environment setup + baseline | ✅ Complete |
+| 2 | In-memory checkpointing | ✅ Complete |
+| 3 | Replication + failure detection | 🔨 In Progress |
+| 4 | Failure injection + recovery | ⏳ Pending |
+| 5-6 | Integration + final report | ⏳ Pending |
 
 ## References
 
@@ -135,9 +184,8 @@ Success criteria: Achieve 10-13× faster recovery with minimal throughput loss.
 
 ## License
 
-This is an academic reproduction project for CS240 at KAUST.
+This is an academic reproduction project for CS240 at KAUST. Licensed under MIT.
 
 ## Acknowledgments
 
 This project reproduces the Gemini system developed by Wang et al. (SOSP 2023). We acknowledge the original authors for their groundbreaking work in distributed training reliability.
-
