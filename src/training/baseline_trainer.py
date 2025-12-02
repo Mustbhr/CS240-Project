@@ -11,7 +11,7 @@ Key Components:
 3. Recovery from disk-based checkpoints
 4. Metrics collection for comparison
 
-Author: Mustafa Albahrani, Mohammed Alkhalifa
+Author: Mustafa Albahrani, Mohammed Alkhalifah
 Course: CS240 - Distributed Systems
 """
 
@@ -251,7 +251,9 @@ class BaselineTrainer:
         config: TrainingConfig,
         rank: int,
         world_size: int,
-        local_rank: int = 0
+        local_rank: int = 0,
+        experiment_logger: Optional[Any] = None,
+        use_wandb: bool = False
     ):
         """
         Initialize the trainer.
@@ -261,6 +263,8 @@ class BaselineTrainer:
             rank: Global rank of this process (0 to world_size-1)
             world_size: Total number of processes
             local_rank: GPU index on this node (for multi-GPU nodes)
+            experiment_logger: Optional ExperimentLogger for tracking
+            use_wandb: Whether to create a wandb logger if none provided
         """
         self.config = config
         self.rank = rank
@@ -270,6 +274,25 @@ class BaselineTrainer:
         
         # Metrics storage
         self.metrics_history = []
+        
+        # Experiment logger (wandb integration)
+        if experiment_logger is not None:
+            self.exp_logger = experiment_logger
+        elif use_wandb:
+            try:
+                from src.utils.experiment_logger import create_logger_for_distributed
+                self.exp_logger = create_logger_for_distributed(
+                    rank=rank,
+                    world_size=world_size,
+                    experiment_name="baseline",
+                    config=asdict(config),
+                    use_wandb=True
+                )
+            except Exception as e:
+                logger.warning(f"Failed to create wandb logger: {e}")
+                self.exp_logger = None
+        else:
+            self.exp_logger = None
         
         # Create checkpoint directory
         self.checkpoint_dir = Path(config.checkpoint_dir)
@@ -570,11 +593,35 @@ class BaselineTrainer:
                         f"Loss: {loss:.4f} | "
                         f"Throughput: {samples_per_sec:.1f} samples/s"
                     )
+                    
+                    # Log to wandb if available
+                    if self.exp_logger:
+                        self.exp_logger.log({
+                            "train/loss": loss,
+                            "train/throughput": samples_per_sec,
+                            "train/step_time_ms": step_time * 1000,
+                            "iteration": iteration
+                        })
                 
                 # Checkpointing (to disk - this is our baseline!)
                 checkpoint_time = 0.0
+                checkpoint_size_mb = 0.0
                 if iteration > 0 and iteration % self.config.checkpoint_frequency == 0:
                     checkpoint_time = self.save_checkpoint(model, optimizer, iteration)
+                    
+                    # Get checkpoint size
+                    ckpt_path = self.checkpoint_dir / f"checkpoint_{iteration}.pt"
+                    if ckpt_path.exists():
+                        checkpoint_size_mb = ckpt_path.stat().st_size / (1024 * 1024)
+                    
+                    # Log checkpoint metrics to wandb
+                    if self.exp_logger and self.rank == 0:
+                        self.exp_logger.log_checkpoint(
+                            iteration=iteration,
+                            save_time_ms=checkpoint_time * 1000,
+                            size_mb=checkpoint_size_mb,
+                            checkpoint_type="disk"
+                        )
                 
                 # Record metrics
                 metric = TrainingMetrics(
@@ -610,6 +657,10 @@ class BaselineTrainer:
             results_path = self.checkpoint_dir / "training_results.json"
             with open(results_path, 'w') as f:
                 json.dump(results, f, indent=2)
+            
+            # Finish experiment logging
+            if self.exp_logger:
+                self.exp_logger.finish()
         
         return results
     
@@ -618,6 +669,13 @@ class BaselineTrainer:
         if dist.is_initialized():
             dist.destroy_process_group()
             logger.info(f"[Rank {self.rank}] Cleaned up distributed resources")
+        
+        # Cleanup experiment logger if training didn't finish normally
+        if self.exp_logger and self.rank == 0:
+            try:
+                self.exp_logger.finish()
+            except:
+                pass  # Already finished or error
 
 
 def run_training(rank: int, world_size: int, config: TrainingConfig):

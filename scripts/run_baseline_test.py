@@ -5,12 +5,16 @@ Quick test script to verify the baseline training infrastructure.
 Run this to test the implementation without a cluster:
     python scripts/run_baseline_test.py
 
+Run with wandb logging:
+    python scripts/run_baseline_test.py --wandb
+
 This runs a simple training loop with disk-based checkpointing
 and reports performance metrics.
 """
 
 import sys
 import os
+import argparse
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -25,13 +29,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def test_baseline_trainer():
+def test_baseline_trainer(use_wandb: bool = False):
     """Test the baseline trainer in single-process mode."""
     from src.training import BaselineTrainer, TrainingConfig
     from src.utils import SyntheticDataset
     
     print("=" * 60)
     print("BASELINE TRAINER TEST")
+    if use_wandb:
+        print("(with wandb logging enabled)")
     print("=" * 60)
     
     # Create config
@@ -45,12 +51,13 @@ def test_baseline_trainer():
         checkpoint_dir="./checkpoints/baseline_test"
     )
     
-    # Create trainer
+    # Create trainer with optional wandb
     trainer = BaselineTrainer(
         config=config,
         rank=0,
         world_size=1,
-        local_rank=0
+        local_rank=0,
+        use_wandb=use_wandb
     )
     
     # Create dataset
@@ -78,6 +85,9 @@ def test_baseline_trainer():
         print(f"\nCheckpoint Performance:")
         print(f"  Number of checkpoints: {len(results['checkpoint_times'])}")
         print(f"  Average checkpoint time: {avg_checkpoint_time:.3f}s")
+    
+    if use_wandb:
+        print("\n📊 Check wandb dashboard for interactive plots!")
     
     return results
 
@@ -218,23 +228,80 @@ def compare_disk_vs_memory():
     return comparison
 
 
+def test_experiment_logger():
+    """Test the experiment logger with wandb."""
+    from src.utils import ExperimentLogger
+    
+    print("\n" + "=" * 60)
+    print("EXPERIMENT LOGGER TEST (wandb)")
+    print("=" * 60)
+    
+    # Test with wandb enabled
+    exp_logger = ExperimentLogger(
+        project="gemini-cs240",
+        run_name="test-run",
+        config={"test": True, "batch_size": 8},
+        tags=["test"],
+        use_wandb=True  # Will try to use wandb
+    )
+    
+    # Log some test metrics
+    for i in range(10):
+        exp_logger.log({
+            "test/loss": 1.0 / (i + 1),
+            "test/accuracy": i * 10,
+            "iteration": i
+        })
+    
+    # Log checkpoint comparison
+    exp_logger.log_comparison(
+        disk_save_time_ms=150.0,
+        disk_load_time_ms=200.0,
+        memory_save_time_ms=15.0,
+        memory_load_time_ms=10.0
+    )
+    
+    # Finish
+    summary = exp_logger.finish()
+    
+    print("\nExperiment logger test complete!")
+    print("Check your wandb dashboard if you're logged in.")
+    
+    return summary
+
+
 def main():
     """Run all tests."""
+    parser = argparse.ArgumentParser(description="Test Gemini project infrastructure")
+    parser.add_argument("--wandb", action="store_true", help="Enable wandb logging")
+    parser.add_argument("--skip-training", action="store_true", help="Skip training test")
+    args = parser.parse_args()
+    
     print("\n" + "=" * 60)
     print("GEMINI PROJECT - INFRASTRUCTURE TEST")
     print("=" * 60)
     print("\nThis script tests the core components without a GPU cluster.")
-    print("It verifies that the training and checkpointing infrastructure works.\n")
+    print("It verifies that the training and checkpointing infrastructure works.")
+    
+    if args.wandb:
+        print("\n🔗 wandb logging is ENABLED")
+        print("   Make sure you're logged in: wandb login")
+    print()
     
     try:
         # Test 1: Baseline trainer
-        baseline_results = test_baseline_trainer()
+        if not args.skip_training:
+            baseline_results = test_baseline_trainer(use_wandb=args.wandb)
         
         # Test 2: In-memory checkpoint
         memory_stats = test_in_memory_checkpoint()
         
         # Test 3: Comparison
         comparison = compare_disk_vs_memory()
+        
+        # Test 4: Experiment logger (if wandb enabled)
+        if args.wandb:
+            test_experiment_logger()
         
         print("\n" + "=" * 60)
         print("ALL TESTS PASSED! ✓")
@@ -244,6 +311,10 @@ def main():
         print("2. Test distributed training across nodes")
         print("3. Implement checkpoint replication")
         print("4. Add failure injection and recovery")
+        
+        if args.wandb:
+            print("\n📊 Check your wandb dashboard:")
+            print("   https://wandb.ai/your-username/gemini-cs240")
         
     except Exception as e:
         print(f"\n❌ Test failed with error: {e}")
