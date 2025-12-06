@@ -279,39 +279,63 @@ class GeminiTrainer:
     
     def _replicate_checkpoint(self, iteration: int, checkpoint_bytes: bytes):
         """
-        Replicate checkpoint to peer GPUs.
+        Replicate checkpoint to peer GPUs with Debugging and P2P safety.
         """
-        import numpy as np # Ensure numpy is imported
+        import numpy as np
+        import gc
         
-        # 1. FIX: Optimize Byte Conversion
-        # OLD SLOW WAY: checkpoint_tensor = torch.ByteTensor(list(checkpoint_bytes)).to(self.device)
-        # NEW FAST WAY: Use numpy to avoid creating 400 million python objects
-        np_array = np.frombuffer(checkpoint_bytes, dtype=np.uint8)
-        # copy() is needed because frombuffer is read-only, and torch needs writable
-        checkpoint_tensor = torch.from_numpy(np_array.copy()).to(self.device)
-        
-        size_tensor = torch.tensor([len(checkpoint_tensor)], dtype=torch.long, device=self.device)
+        # Force garbage collection before big allocation
+        gc.collect()
+        torch.cuda.empty_cache()
 
-        # 2. FIX: Explicit Barrier Device to stop warnings/deadlocks
+        if self.rank == 0:
+            logger.info(f"--- [Replication Debug] Start Iter {iteration} ---")
+
+        # 1. Convert Bytes to Tensor (Zero-Copy)
+        # Using numpy avoids the overhead of creating millions of python integers
+        try:
+            np_array = np.frombuffer(checkpoint_bytes, dtype=np.uint8)
+            checkpoint_tensor = torch.from_numpy(np_array.copy()).to(self.device)
+            local_size = len(checkpoint_tensor)
+        except Exception as e:
+            logger.error(f"[GPU {self.rank}] Error converting bytes: {e}")
+            raise e
+
+        # 2. Sync Sizes
+        # We use a explicit barrier to ensure everyone is ready
         dist.barrier(device_ids=[self.local_rank])
-
-        # Gather all sizes first
+        
+        size_tensor = torch.tensor([local_size], dtype=torch.long, device=self.device)
         all_sizes = [torch.zeros(1, dtype=torch.long, device=self.device) for _ in range(self.world_size)]
+        
+        if self.rank == 0:
+            logger.info("[Replication Debug] Gathering sizes...")
+            
         dist.all_gather(all_sizes, size_tensor)
-
-        # Gather all checkpoints (padded to max size)
+        
+        # Calculate max size for padding
         max_size = max(s.item() for s in all_sizes)
-        
-        # Pre-allocate output buffer
+        if self.rank == 0:
+             logger.info(f"[Replication Debug] Max checkpoint size: {max_size / 1024**2:.2f} MB")
+
+        # 3. Prepare Tensors for All-Gather
+        # We must pad our local tensor to match the max_size so all_gather works
         padded_checkpoint = torch.zeros(max_size, dtype=torch.uint8, device=self.device)
-        padded_checkpoint[:len(checkpoint_tensor)] = checkpoint_tensor
-
-        all_checkpoints = [torch.zeros(max_size, dtype=torch.uint8, device=self.device) for _ in range(self.world_size)]
+        padded_checkpoint[:local_size] = checkpoint_tensor
         
-        # 3. Perform the heavy transfer
-        dist.all_gather(all_checkpoints, padded_checkpoint)
+        # Create output buffer
+        all_checkpoints = [torch.zeros(max_size, dtype=torch.uint8, device=self.device) for _ in range(self.world_size)]
 
-        # Store replicas
+        # 4. The Big Transfer
+        if self.rank == 0:
+            logger.info("[Replication Debug] starting dist.all_gather (This is where it usually hangs)...")
+            
+        dist.all_gather(all_checkpoints, padded_checkpoint)
+        
+        if self.rank == 0:
+            logger.info("[Replication Debug] Data transfer complete!")
+
+        # 5. Extract and Store Replicas
         for source_rank in range(self.world_size):
             if source_rank == self.rank:
                 continue
@@ -319,12 +343,19 @@ class GeminiTrainer:
             their_targets = self.replicator.get_replica_targets(source_rank)
             if self.rank in their_targets:
                 their_size = int(all_sizes[source_rank].item())
-                # Move back to CPU and convert to bytes
+                # Move to CPU immediately to free VRAM
                 their_bytes = bytes(all_checkpoints[source_rank][:their_size].cpu().numpy().tobytes())
                 self.replicator.store_replica(source_rank, iteration, their_bytes)
 
+        # Cleanup VRAM
+        del checkpoint_tensor
+        del padded_checkpoint
+        del all_checkpoints
+        torch.cuda.empty_cache()
+        
         dist.barrier(device_ids=[self.local_rank])
-
+        if self.rank == 0:
+            logger.info(f"--- [Replication Debug] Finished Iter {iteration} ---")
     
     def recover_from_failure(
         self,
