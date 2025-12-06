@@ -504,19 +504,18 @@ class GeminiTrainer:
 
 def run_gemini_worker(rank: int, world_size: int, config: GeminiConfig):
     """Worker function for each GPU."""
-    # Set environment
+    # Set environment for distributed training
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '29500'
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(rank)
     
-    # Set device
+    # Set the device for this process (rank maps to GPU index)
     torch.cuda.set_device(rank)
     
     trainer = GeminiTrainer(
         config=config,
         rank=rank,
         world_size=world_size,
-        local_rank=0  # Each process sees only its GPU as device 0
+        local_rank=rank  # Each process uses its corresponding GPU
     )
     
     try:
