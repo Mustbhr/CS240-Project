@@ -57,6 +57,9 @@ class GeminiConfig(TrainingConfig):
     replication_factor: int = 2  # Number of replicas (m=2)
     async_replication: bool = True  # Replicate asynchronously
 
+    # Checkpoint mode
+    use_disk_checkpoint: bool = False  # If True, use disk instead of RAM (for baseline comparison)
+
     # Failure simulation
     simulate_failure: bool = False
     failure_gpu: int = -1  # Which GPU to "fail" (-1 = random)
@@ -231,26 +234,50 @@ class GeminiTrainer:
     ) -> Dict[str, float]:
         """
         Gemini-style checkpoint: Save to RAM + replicate to peers.
+        Or disk checkpoint if use_disk_checkpoint is True (for baseline comparison).
         """
         import gc  # Ensure gc is imported
 
         timings = {}
 
-        # Step 1: Save to local RAM
-        save_start = time.time()
-        self.checkpoint_manager.save(model, optimizer, iteration)
-        timings["local_save_ms"] = (time.time() - save_start) * 1000
+        if self.config.use_disk_checkpoint:
+            # DISK CHECKPOINT (baseline for comparison)
+            save_start = time.time()
+            checkpoint_path = self.results_dir / f"checkpoint_{iteration}.pt"
+            model_to_save = model.module if hasattr(model, 'module') else model
+            torch.save({
+                'iteration': iteration,
+                'model_state_dict': model_to_save.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+            }, checkpoint_path)
+            timings["local_save_ms"] = (time.time() - save_start) * 1000
+            timings["checkpoint_size_mb"] = checkpoint_path.stat().st_size / (1024 * 1024)
+            timings["replication_ms"] = 0  # No replication for disk
+            timings["total_ms"] = timings["local_save_ms"]
+            
+            # Sync all GPUs
+            dist.barrier(device_ids=[self.local_rank])
+        else:
+            # IN-MEMORY CHECKPOINT (Gemini approach)
+            # Step 1: Save to local RAM
+            save_start = time.time()
+            self.checkpoint_manager.save(model, optimizer, iteration)
+            timings["local_save_ms"] = (time.time() - save_start) * 1000
 
-        # Step 2: Get checkpoint bytes
-        checkpoint_bytes = self.checkpoint_manager.get_checkpoint_bytes(iteration)
-        timings["checkpoint_size_mb"] = len(checkpoint_bytes) / (1024 * 1024)
+            # Step 2: Get checkpoint bytes
+            checkpoint_bytes = self.checkpoint_manager.get_checkpoint_bytes(iteration)
+            timings["checkpoint_size_mb"] = len(checkpoint_bytes) / (1024 * 1024)
 
-        # Step 3: Replicate
-        replication_start = time.time()
-        self._replicate_checkpoint(iteration, checkpoint_bytes)
-        timings["replication_ms"] = (time.time() - replication_start) * 1000
+            # Step 3: Replicate (only if replication_factor > 1)
+            if self.config.replication_factor > 1:
+                replication_start = time.time()
+                self._replicate_checkpoint(iteration, checkpoint_bytes)
+                timings["replication_ms"] = (time.time() - replication_start) * 1000
+            else:
+                timings["replication_ms"] = 0
+                dist.barrier(device_ids=[self.local_rank])  # Still sync
 
-        timings["total_ms"] = timings["local_save_ms"] + timings["replication_ms"]
+            timings["total_ms"] = timings["local_save_ms"] + timings["replication_ms"]
 
         # --- CLEANUP LOGIC ---
         # 1. Delete old replicas from our dictionary
@@ -544,22 +571,17 @@ class GeminiTrainer:
 
                 iteration += 1
 
-        total_time = time.time() - start_time
-
-        # If failure occurred, demonstrate RECOVERY from in-memory checkpoint
+        # If failure occurred, demonstrate RECOVERY and CONTINUE training
         recovery_time_ms = 0
         if training_stopped and any_failed:
             latest_iter = self.checkpoint_manager.get_latest_iteration()
             if latest_iter is not None:
                 if self.rank == 0:
-                    logger.info(f"[RECOVERY] Demonstrating recovery from checkpoint (iter {latest_iter})")
+                    logger.info(f"[RECOVERY] Recovering from checkpoint (iter {latest_iter})...")
                 
                 # Measure recovery time - this is the KEY Gemini benefit!
                 recovery_start = time.time()
-                
-                # load() takes model, optimizer, iteration, device and loads directly
                 self.checkpoint_manager.load(model, optimizer, latest_iter, self.device)
-                
                 recovery_time_ms = (time.time() - recovery_start) * 1000
                 
                 if self.rank == 0:
@@ -570,6 +592,46 @@ class GeminiTrainer:
                     'recovered_from_iteration': latest_iter,
                     'recovery_time_ms': recovery_time_ms,
                 })
+                
+                # CONTINUE TRAINING after recovery!
+                if self.rank == 0:
+                    logger.info(f"[RECOVERY] Resuming training from iteration {latest_iter + 1}...")
+                
+                # Reset failure flags
+                self.is_failed = False
+                training_stopped = False
+                iteration = latest_iter + 1
+                
+                # Continue training loop
+                while iteration < self.config.max_iterations:
+                    epoch += 1
+                    dataloader.sampler.set_epoch(epoch)
+                    
+                    for batch in dataloader:
+                        if iteration >= self.config.max_iterations:
+                            break
+                        
+                        # Normal training (no more failure simulation)
+                        step_start = time.time()
+                        loss = self.train_step(model, batch, optimizer)
+                        step_time = time.time() - step_start
+                        
+                        samples_per_sec = self.config.batch_size / step_time
+                        total_samples += self.config.batch_size
+                        
+                        if iteration % self.config.log_interval == 0 and self.rank == 0:
+                            logger.info(
+                                f"[POST-RECOVERY] Iter {iteration}/{self.config.max_iterations} | "
+                                f"Loss: {loss:.4f} | Throughput: {samples_per_sec:.1f} samples/s"
+                            )
+                        
+                        # Checkpoint (no replication after recovery for simplicity)
+                        if iteration > 0 and iteration % self.config.checkpoint_frequency == 0:
+                            self.save_checkpoint_gemini(model, optimizer, iteration)
+                        
+                        iteration += 1
+
+        total_time = time.time() - start_time
 
         # Gather results
         final_loss = None

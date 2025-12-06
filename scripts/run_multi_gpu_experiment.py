@@ -301,10 +301,63 @@ def run_single_gpu_gemini(iterations=100, checkpoint_freq=CHECK_POINT_FRQ):
     }
 
 
-def run_multi_gpu_gemini(num_gpus=4, iterations=100, checkpoint_freq=CHECK_POINT_FRQ):
-    """Run multi-GPU Gemini training with replication."""
+def run_multi_gpu_disk_baseline(num_gpus=4, iterations=100, checkpoint_freq=CHECK_POINT_FRQ):
+    """Run multi-GPU training with DISK checkpointing (baseline for comparison)."""
     print("\n" + "=" * 60)
-    print(f"EXPERIMENT 3: Multi-GPU Gemini ({num_gpus} GPUs)")
+    print(f"EXPERIMENT 3a: Multi-GPU DISK Baseline ({num_gpus} GPUs)")
+    print("=" * 60)
+    
+    import torch.multiprocessing as mp
+    from src.training.gemini_trainer import GeminiConfig, run_gemini_worker
+    
+    # Use Gemini trainer but with disk checkpointing flag
+    config = GeminiConfig(
+        hidden_size=HIDDEN_SIZE,
+        num_layers=NUM_LAYERS,
+        num_heads=NUM_HEADS,
+        batch_size=8,
+        max_iterations=iterations,
+        checkpoint_frequency=checkpoint_freq,
+        checkpoint_dir="./checkpoints/multi_disk",
+        log_interval=25,
+        replication_factor=1,  # No replication for disk baseline
+        use_disk_checkpoint=True,  # Use disk instead of RAM
+    )
+    
+    start_time = time.time()
+    mp.spawn(run_gemini_worker, args=(num_gpus, config), nprocs=num_gpus, join=True)
+    total_time = time.time() - start_time
+    
+    results_path = Path("./checkpoints/multi_disk/gemini/training_results.json")
+    if results_path.exists():
+        with open(results_path) as f:
+            results = json.load(f)
+        
+        checkpoint_times = [c["total_ms"] for c in results.get("checkpoint_times", [])]
+        
+        print(f"\n📊 Multi-GPU DISK Baseline Results:")
+        print(f"   Total time: {total_time:.2f}s")
+        print(f"   GPUs used: {num_gpus}")
+        print(f"   Checkpoint times: {checkpoint_times}")
+        if checkpoint_times:
+            print(f"   Avg checkpoint time: {sum(checkpoint_times)/len(checkpoint_times):.2f}ms")
+        
+        return {
+            "type": "multi_gpu_disk",
+            "total_time": total_time,
+            "num_gpus": num_gpus,
+            "checkpoint_times_ms": checkpoint_times,
+            "avg_checkpoint_ms": sum(checkpoint_times)/len(checkpoint_times) if checkpoint_times else 0,
+        }
+    else:
+        print("⚠️ Results file not found")
+        return {"type": "multi_gpu_disk", "total_time": total_time, "note": "results not found"}
+
+
+def run_multi_gpu_gemini(num_gpus=4, iterations=100, checkpoint_freq=CHECK_POINT_FRQ):
+    """Run multi-GPU Gemini training with IN-MEMORY checkpointing + replication."""
+    print("\n" + "=" * 60)
+    print(f"EXPERIMENT 3b: Multi-GPU Gemini IN-MEMORY ({num_gpus} GPUs)")
     print("=" * 60)
 
     import torch.multiprocessing as mp
@@ -667,7 +720,19 @@ def main():
                 torch.cuda.empty_cache()
         print("\n🧹 Cleared GPU memory before multi-GPU experiments")
 
-        # Experiment 3: Multi-GPU Gemini with replication
+        # Experiment 3a: Multi-GPU DISK Baseline (for fair comparison)
+        multi_disk = None
+        if not args.skip_multi and torch.cuda.device_count() >= 2:
+            num_gpus = min(args.gpus, torch.cuda.device_count())
+            multi_disk = run_multi_gpu_disk_baseline(
+                num_gpus, args.iterations, args.checkpoint_freq
+            )
+            
+            # Clear memory between experiments
+            gc.collect()
+            torch.cuda.empty_cache()
+
+        # Experiment 3b: Multi-GPU Gemini IN-MEMORY with replication
         gemini_multi = None
         if not args.skip_multi and torch.cuda.device_count() >= 2:
             num_gpus = min(args.gpus, torch.cuda.device_count())
