@@ -461,6 +461,7 @@ class GeminiTrainer:
         iteration = 0
         epoch = 0
         total_samples = 0
+        any_failed = False  # Track if any GPU has failed
         start_time = time.time()
 
         logger.info(f"[GPU {self.rank}] Starting Gemini training")
@@ -473,7 +474,8 @@ class GeminiTrainer:
                 if iteration >= self.config.max_iterations:
                     break
 
-                # Check for simulated failure
+                # Check for simulated failure BEFORE training step
+                # We need to detect and broadcast failure BEFORE DDP operations
                 if (
                     self.config.simulate_failure
                     and self.rank == self.config.failure_gpu
@@ -483,27 +485,9 @@ class GeminiTrainer:
                         f"[GPU {self.rank}] SIMULATED FAILURE at iteration {iteration}!"
                     )
                     self.is_failed = True
-                    # In real failure, process would die. Here we skip training.
 
-                # Training step (skip if failed)
-                if not self.is_failed:
-                    step_start = time.time()
-                    loss = self.train_step(model, batch, optimizer)
-                    step_time = time.time() - step_start
-
-                    samples_per_sec = self.config.batch_size / step_time
-                    total_samples += self.config.batch_size
-
-                    # Logging
-                    if iteration % self.config.log_interval == 0 and self.rank == 0:
-                        logger.info(
-                            f"Iter {iteration}/{self.config.max_iterations} | "
-                            f"Loss: {loss:.4f} | "
-                            f"Throughput: {samples_per_sec:.1f} samples/s"
-                        )
-
-                # IMPORTANT: All GPUs must participate in failure detection together
-                # This must happen at the same point in ALL GPUs to avoid collective op mismatch
+                # IMPORTANT: Broadcast failure status to ALL GPUs BEFORE training step
+                # DDP requires ALL GPUs to participate together, so we must decide together
                 failure_flag = torch.tensor(
                     [1 if self.is_failed else 0],
                     dtype=torch.int,
@@ -512,47 +496,90 @@ class GeminiTrainer:
                 dist.all_reduce(failure_flag, op=dist.ReduceOp.MAX)
                 any_failed = failure_flag.item() > 0
 
+                # If any GPU has failed, ALL GPUs skip training (DDP requirement!)
+                if any_failed:
+                    if self.rank == 0 and iteration == self.config.failure_iteration:
+                        logger.info(f"[ALL GPUs] Stopping training due to GPU failure at iter {iteration}")
+                    # Break out of training loop - in real scenario, would restart
+                    break
+
+                # Training step - ALL GPUs participate together
+                step_start = time.time()
+                loss = self.train_step(model, batch, optimizer)
+                step_time = time.time() - step_start
+
+                samples_per_sec = self.config.batch_size / step_time
+                total_samples += self.config.batch_size
+
+                # Logging
+                if iteration % self.config.log_interval == 0 and self.rank == 0:
+                    logger.info(
+                        f"Iter {iteration}/{self.config.max_iterations} | "
+                        f"Loss: {loss:.4f} | "
+                        f"Throughput: {samples_per_sec:.1f} samples/s"
+                    )
+
                 # Gemini checkpoint (RAM + replication)
                 checkpoint_timings = None
                 if iteration > 0 and iteration % self.config.checkpoint_frequency == 0:
-                    if not any_failed:
-                        checkpoint_timings = self.save_checkpoint_gemini(
-                            model, optimizer, iteration
-                        )
-                    else:
-                        # Skip checkpointing if any GPU has failed
-                        if self.rank == 0:
-                            logger.warning(
-                                f"Skipping checkpoint at iter {iteration} due to GPU failure"
-                            )
-                        # All GPUs must sync here to stay together
-                        dist.barrier(device_ids=[self.local_rank])
-
-                # Record metrics (only if not failed)
-                if not self.is_failed:
-                    self.metrics_history.append(
-                        TrainingMetrics(
-                            iteration=iteration,
-                            loss=loss,
-                            throughput=samples_per_sec,
-                            checkpoint_time=(
-                                checkpoint_timings["total_ms"] / 1000
-                                if checkpoint_timings
-                                else 0
-                            ),
-                            recovery_time=0,
-                            timestamp=time.time(),
-                        )
+                    checkpoint_timings = self.save_checkpoint_gemini(
+                        model, optimizer, iteration
                     )
+
+                # Record metrics
+                self.metrics_history.append(
+                    TrainingMetrics(
+                        iteration=iteration,
+                        loss=loss,
+                        throughput=samples_per_sec,
+                        checkpoint_time=(
+                            checkpoint_timings["total_ms"] / 1000
+                            if checkpoint_timings
+                            else 0
+                        ),
+                        recovery_time=0,
+                        timestamp=time.time(),
+                    )
+                )
 
                 iteration += 1
 
         total_time = time.time() - start_time
 
+        # If failure occurred, demonstrate RECOVERY from in-memory checkpoint
+        recovery_time_ms = 0
+        if self.is_failed or any_failed:
+            # Find the latest checkpoint from any GPU's in-memory store
+            latest_iter = self.checkpoint_manager.get_latest_iteration()
+            if latest_iter is not None:
+                if self.rank == 0:
+                    logger.info(f"[RECOVERY] Demonstrating recovery from in-memory checkpoint (iter {latest_iter})")
+                
+                # Measure recovery time - this is the KEY Gemini benefit!
+                recovery_start = time.time()
+                loaded_state = self.checkpoint_manager.load(latest_iter, map_location=self.device)
+                
+                # Load state into model
+                model_to_load = model.module if hasattr(model, 'module') else model
+                model_to_load.load_state_dict(loaded_state['model_state_dict'])
+                optimizer.load_state_dict(loaded_state['optimizer_state_dict'])
+                
+                recovery_time_ms = (time.time() - recovery_start) * 1000
+                
+                if self.rank == 0:
+                    logger.info(f"[RECOVERY] ⚡ Recovered from RAM in {recovery_time_ms:.2f}ms!")
+                
+                self.recovery_events.append({
+                    'failed_rank': self.config.failure_gpu,
+                    'recovered_from_iteration': latest_iter,
+                    'recovery_time_ms': recovery_time_ms,
+                    'recovered_by': self.rank
+                })
+
         # Gather results
         # Get final loss from metrics if available
         final_loss = None
-        if self.metrics_history and not self.is_failed:
+        if self.metrics_history:
             final_loss = self.metrics_history[-1].loss
 
         results = {
@@ -563,6 +590,7 @@ class GeminiTrainer:
             "average_throughput": total_samples / total_time if total_time > 0 else 0,
             "checkpoint_times": self.checkpoint_times,
             "recovery_events": self.recovery_events,
+            "recovery_time_ms": recovery_time_ms,
             "final_loss": final_loss,
         }
 
