@@ -111,7 +111,7 @@ def check_environment():
     return True
 
 
-def run_single_gpu_baseline(iterations=100, checkpoint_freq=25):
+def run_single_gpu_baseline(iterations=100, checkpoint_freq=50):
     """Run baseline (disk) checkpointing on single GPU."""
     print("=" * 60)
     print("EXPERIMENT 1: Single-GPU Baseline (Disk Checkpointing)")
@@ -169,7 +169,7 @@ def run_single_gpu_baseline(iterations=100, checkpoint_freq=25):
     }
 
 
-def run_single_gpu_gemini(iterations=100, checkpoint_freq=25):
+def run_single_gpu_gemini(iterations=100, checkpoint_freq=50):
     """Run Gemini (in-memory) checkpointing on single GPU."""
     print("\n" + "=" * 60)
     print("EXPERIMENT 2: Single-GPU Gemini (In-Memory Checkpointing)")
@@ -291,7 +291,7 @@ def run_single_gpu_gemini(iterations=100, checkpoint_freq=25):
     }
 
 
-def run_multi_gpu_gemini(num_gpus=4, iterations=100, checkpoint_freq=25):
+def run_multi_gpu_gemini(num_gpus=4, iterations=100, checkpoint_freq=50):
     """Run multi-GPU Gemini training with replication."""
     print("\n" + "=" * 60)
     print(f"EXPERIMENT 3: Multi-GPU Gemini ({num_gpus} GPUs)")
@@ -359,7 +359,7 @@ def run_multi_gpu_gemini(num_gpus=4, iterations=100, checkpoint_freq=25):
         return {'type': 'gemini_multi', 'error': 'results not found'}
 
 
-def run_failure_simulation(num_gpus=4, iterations=150, checkpoint_freq=25, failure_iteration=75):
+def run_failure_simulation(num_gpus=4, iterations=150, checkpoint_freq=50, failure_iteration=75):
     """
     Simulate a GPU failure and test recovery.
     
@@ -540,7 +540,7 @@ def main():
     
     parser = argparse.ArgumentParser(description='Multi-GPU Experiment Runner')
     parser.add_argument('--iterations', type=int, default=100, help='Training iterations')
-    parser.add_argument('--checkpoint-freq', type=int, default=25, help='Checkpoint frequency')
+    parser.add_argument('--checkpoint-freq', type=int, default=50, help='Checkpoint frequency')
     parser.add_argument('--skip-multi', action='store_true', help='Skip multi-GPU experiment')
     parser.add_argument('--skip-failure', action='store_true', help='Skip failure simulation')
     parser.add_argument('--gpus', type=int, default=4, help='Number of GPUs for multi-GPU test')
