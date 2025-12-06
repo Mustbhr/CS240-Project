@@ -316,28 +316,20 @@ class GeminiTrainer:
             logger.error(f"[GPU {self.rank}] Error converting bytes: {e}")
             raise e
 
-        # Barrier to ensure all GPUs finish conversion before continuing
-        dist.barrier(device_ids=[self.local_rank])
-
         # 2. Determine ring targets for point-to-point replication
         # Send target: (rank + 1) % world_size (next GPU in ring)
         send_target = (self.rank + 1) % self.world_size
         # Receive source: (rank - 1 + world_size) % world_size (previous GPU in ring)
         recv_source = (self.rank - 1 + self.world_size) % self.world_size
 
-        # 3. Exchange sizes first (needed for receive buffer allocation)
+        # 3. Exchange sizes using all_gather (small data, reliable)
         size_tensor = torch.tensor([local_size], dtype=torch.long, device=self.device)
-        recv_size_tensor = torch.zeros(1, dtype=torch.long, device=self.device)
-
-        # Async send/receive sizes
-        send_size_req = dist.isend(size_tensor, send_target)
-        recv_size_req = dist.irecv(recv_size_tensor, recv_source)
-
-        # Wait for size exchange to complete
-        send_size_req.wait()
-        recv_size_req.wait()
-
-        recv_size = int(recv_size_tensor.item())
+        all_sizes = [
+            torch.zeros(1, dtype=torch.long, device=self.device)
+            for _ in range(self.world_size)
+        ]
+        dist.all_gather(all_sizes, size_tensor)
+        recv_size = int(all_sizes[recv_source].item())
 
         if self.rank == 0:
             logger.info(
@@ -348,13 +340,17 @@ class GeminiTrainer:
         # 4. Prepare receive buffer
         recv_tensor = torch.zeros(recv_size, dtype=torch.uint8, device=self.device)
 
-        # 5. Async point-to-point transfer
-        send_req = dist.isend(checkpoint_tensor, send_target)
-        recv_req = dist.irecv(recv_tensor, recv_source)
+        # 5. Use batch_isend_irecv for safe point-to-point communication
+        # This handles the ordering correctly for NCCL
+        send_op = dist.P2POp(dist.isend, checkpoint_tensor, send_target)
+        recv_op = dist.P2POp(dist.irecv, recv_tensor, recv_source)
 
-        # Wait for both operations to complete
-        send_req.wait()
-        recv_req.wait()
+        # batch_isend_irecv handles the proper ordering to avoid deadlocks
+        reqs = dist.batch_isend_irecv([send_op, recv_op])
+
+        # Wait for all operations to complete
+        for req in reqs:
+            req.wait()
 
         if self.rank == 0:
             logger.info("[Replication] Point-to-point transfer complete!")
