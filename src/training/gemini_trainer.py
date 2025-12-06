@@ -195,9 +195,10 @@ class GeminiTrainer:
             dist.init_process_group(
                 backend="nccl",
                 rank=self.rank,
-                world_size=self.world_size,
-                device_id=torch.device(f"cuda:{self.local_rank}")  # Suppress warning
+                world_size=self.world_size
             )
+        # Set the default CUDA device for this process
+        torch.cuda.set_device(self.local_rank)
         logger.info(f"[GPU {self.rank}] Distributed setup complete")
     
     def create_model(self) -> nn.Module:
@@ -288,8 +289,8 @@ class GeminiTrainer:
         # In a real implementation, this would use actual network transfer
         # Here we simulate by using distributed broadcast/gather
         
-        # Synchronize all GPUs
-        dist.barrier()
+        # Synchronize all GPUs (specify device to avoid warning)
+        dist.barrier(device_ids=[self.local_rank])
         
         # Each GPU broadcasts its checkpoint to others
         # Using all_gather to collect checkpoints from all GPUs
@@ -321,7 +322,7 @@ class GeminiTrainer:
                 their_bytes = bytes(all_checkpoints[source_rank][:their_size].cpu().tolist())
                 self.replicator.store_replica(source_rank, iteration, their_bytes)
         
-        dist.barrier()
+        dist.barrier(device_ids=[self.local_rank])
     
     def recover_from_failure(
         self,
