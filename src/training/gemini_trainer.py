@@ -462,11 +462,12 @@ class GeminiTrainer:
         epoch = 0
         total_samples = 0
         any_failed = False  # Track if any GPU has failed
+        training_stopped = False  # Flag to break outer loop
         start_time = time.time()
 
         logger.info(f"[GPU {self.rank}] Starting Gemini training")
 
-        while iteration < self.config.max_iterations:
+        while iteration < self.config.max_iterations and not training_stopped:
             epoch += 1
             dataloader.sampler.set_epoch(epoch)
 
@@ -474,8 +475,7 @@ class GeminiTrainer:
                 if iteration >= self.config.max_iterations:
                     break
 
-                # Check for simulated failure BEFORE training step
-                # We need to detect and broadcast failure BEFORE DDP operations
+                # Check for simulated failure BEFORE training
                 if (
                     self.config.simulate_failure
                     and self.rank == self.config.failure_gpu
@@ -486,8 +486,8 @@ class GeminiTrainer:
                     )
                     self.is_failed = True
 
-                # IMPORTANT: Broadcast failure status to ALL GPUs BEFORE training step
-                # DDP requires ALL GPUs to participate together, so we must decide together
+                # IMPORTANT: Broadcast failure to ALL GPUs BEFORE training step
+                # DDP requires ALL GPUs to participate together
                 failure_flag = torch.tensor(
                     [1 if self.is_failed else 0],
                     dtype=torch.int,
@@ -496,12 +496,12 @@ class GeminiTrainer:
                 dist.all_reduce(failure_flag, op=dist.ReduceOp.MAX)
                 any_failed = failure_flag.item() > 0
 
-                # If any GPU has failed, ALL GPUs skip training (DDP requirement!)
+                # If ANY GPU has failed, ALL GPUs stop together (DDP requirement!)
                 if any_failed:
-                    if self.rank == 0 and iteration == self.config.failure_iteration:
+                    if self.rank == 0:
                         logger.info(f"[ALL GPUs] Stopping training due to GPU failure at iter {iteration}")
-                    # Break out of training loop - in real scenario, would restart
-                    break
+                    training_stopped = True
+                    break  # Break inner loop
 
                 # Training step - ALL GPUs participate together
                 step_start = time.time()
@@ -548,18 +548,16 @@ class GeminiTrainer:
 
         # If failure occurred, demonstrate RECOVERY from in-memory checkpoint
         recovery_time_ms = 0
-        if self.is_failed or any_failed:
-            # Find the latest checkpoint from any GPU's in-memory store
+        if training_stopped and any_failed:
             latest_iter = self.checkpoint_manager.get_latest_iteration()
             if latest_iter is not None:
                 if self.rank == 0:
-                    logger.info(f"[RECOVERY] Demonstrating recovery from in-memory checkpoint (iter {latest_iter})")
+                    logger.info(f"[RECOVERY] Demonstrating recovery from checkpoint (iter {latest_iter})")
                 
                 # Measure recovery time - this is the KEY Gemini benefit!
                 recovery_start = time.time()
                 loaded_state = self.checkpoint_manager.load(latest_iter, map_location=self.device)
                 
-                # Load state into model
                 model_to_load = model.module if hasattr(model, 'module') else model
                 model_to_load.load_state_dict(loaded_state['model_state_dict'])
                 optimizer.load_state_dict(loaded_state['optimizer_state_dict'])
@@ -573,11 +571,9 @@ class GeminiTrainer:
                     'failed_rank': self.config.failure_gpu,
                     'recovered_from_iteration': latest_iter,
                     'recovery_time_ms': recovery_time_ms,
-                    'recovered_by': self.rank
                 })
 
         # Gather results
-        # Get final loss from metrics if available
         final_loss = None
         if self.metrics_history:
             final_loss = self.metrics_history[-1].loss
