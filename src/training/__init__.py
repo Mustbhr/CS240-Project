@@ -6,13 +6,26 @@ from .baseline_trainer import (
     BaselineTrainer,
     TrainingConfig,
     TrainingMetrics,
-    SimpleLanguageModel
+    SimpleLanguageModel,
+    SyntheticDataset
+)
+
+from .gemini_trainer import (
+    GeminiTrainer,
+    GeminiConfig,
+    CheckpointReplicator
 )
 
 __all__ = [
+    # Baseline
     'BaselineTrainer',
     'TrainingConfig',
     'TrainingMetrics',
-    'SimpleLanguageModel'
+    'SimpleLanguageModel',
+    'SyntheticDataset',
+    # Gemini
+    'GeminiTrainer',
+    'GeminiConfig',
+    'CheckpointReplicator'
 ]
 
