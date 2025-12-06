@@ -479,7 +479,7 @@ class GeminiTrainer:
                 
                 if self.is_failed:
                     # Skip training if "failed"
-                    dist.barrier()  # Still sync with others
+                    dist.barrier(device_ids=[self.local_rank])  # Still sync with others
                     iteration += 1
                     continue
                 
@@ -529,13 +529,12 @@ class GeminiTrainer:
             'final_loss': loss if not self.is_failed else None
         }
         
-        # Save results
+        # Sync all GPUs before saving results
+        dist.barrier(device_ids=[self.local_rank])
+        
+        # Save results (only rank 0)
         if self.rank == 0:
             results_path = self.results_dir / "training_results.json"
-            
-            # Aggregate checkpoint times from all GPUs
-            all_checkpoint_times = [None] * self.world_size
-            dist.barrier()
             
             with open(results_path, 'w') as f:
                 json.dump(results, f, indent=2, default=str)
