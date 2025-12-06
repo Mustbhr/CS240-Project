@@ -286,7 +286,6 @@ class GeminiTrainer:
         self.replicator.cleanup_old_replicas(keep_iters)
 
         # 2. Force Python to release the memory of the bytes/tensors used above
-        del checkpoint_bytes
 
         # 3. Force Garbage Collection to return RAM to OS immediately
         gc.collect()

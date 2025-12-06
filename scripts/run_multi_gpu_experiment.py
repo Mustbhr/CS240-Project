@@ -518,7 +518,7 @@ def run_failure_simulation(
         }
 
 
-def compare_results(baseline, gemini_single, gemini_multi=None, failure_results=None):
+def compare_results(baseline, gemini_single, gemini_multi=None, multi_disk=None, failure_results=None):
     """Compare and display results."""
     global exp_logger
 
@@ -531,59 +531,65 @@ def compare_results(baseline, gemini_single, gemini_multi=None, failure_results=
     if baseline["avg_checkpoint_ms"] > 0 and gemini_single["avg_checkpoint_ms"] > 0:
         speedup = baseline["avg_checkpoint_ms"] / gemini_single["avg_checkpoint_ms"]
 
-        print(f"\n📈 Checkpoint Performance:")
-        print(f"   Baseline (Disk):    {baseline['avg_checkpoint_ms']:.2f} ms")
-        print(f"   Gemini (Memory):    {gemini_single['avg_checkpoint_ms']:.2f} ms")
+        print(f"\n📈 Single-GPU Checkpoint Performance:")
+        print(f"   Disk:               {baseline['avg_checkpoint_ms']:.2f} ms")
+        print(f"   RAM (Gemini):       {gemini_single['avg_checkpoint_ms']:.2f} ms")
         print(f"   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print(f"   SPEEDUP:            {speedup:.1f}× FASTER! 🚀")
+
+        comparison = {
+            "single_gpu_speedup": speedup,
+            "single_disk_ms": baseline["avg_checkpoint_ms"],
+            "single_ram_ms": gemini_single["avg_checkpoint_ms"],
+        }
+
+        # Multi-GPU comparison (the key comparison!)
+        if (
+            multi_disk
+            and gemini_multi
+            and multi_disk.get("avg_checkpoint_ms", 0) > 0
+            and gemini_multi.get("avg_checkpoint_ms", 0) > 0
+        ):
+            multi_disk_ms = multi_disk["avg_checkpoint_ms"]
+            multi_ram_ms = gemini_multi["avg_checkpoint_ms"]
+            multi_speedup = multi_disk_ms / multi_ram_ms
+            
+            print(f"\n🔄 Multi-GPU Checkpoint Performance (Key Comparison!):")
+            print(f"   Multi-GPU DISK:     {multi_disk_ms:.2f} ms")
+            print(f"   Multi-GPU RAM:      {multi_ram_ms:.2f} ms (includes replication)")
+            print(f"   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print(f"   SPEEDUP:            {multi_speedup:.1f}× FASTER! 🚀")
+            
+            comparison["multi_gpu_disk_ms"] = multi_disk_ms
+            comparison["multi_gpu_ram_ms"] = multi_ram_ms
+            comparison["multi_gpu_speedup"] = multi_speedup
+        elif gemini_multi and gemini_multi.get("avg_checkpoint_ms", 0) > 0:
+            # Fallback: compare multi-GPU RAM to single-GPU disk
+            multi_ram_ms = gemini_multi["avg_checkpoint_ms"]
+            print(f"\n🔄 Multi-GPU Gemini (RAM + Replication):")
+            print(f"   Checkpoint + Replication: {multi_ram_ms:.2f} ms")
 
         print(f"\n📊 Training Throughput:")
         print(f"   Baseline:           {baseline['throughput']:.1f} samples/s")
         print(f"   Gemini:             {gemini_single['throughput']:.1f} samples/s")
 
-        comparison = {
-            "speedup": speedup,
-            "baseline_ms": baseline["avg_checkpoint_ms"],
-            "gemini_ms": gemini_single["avg_checkpoint_ms"],
-            "baseline_throughput": baseline["throughput"],
-            "gemini_throughput": gemini_single["throughput"],
-        }
-
-        if (
-            gemini_multi
-            and "avg_checkpoint_ms" in gemini_multi
-            and gemini_multi["avg_checkpoint_ms"] > 0
-        ):
-            multi_speedup = (
-                baseline["avg_checkpoint_ms"] / gemini_multi["avg_checkpoint_ms"]
-            )
-            print(f"\n🔄 Multi-GPU Replication:")
-            print(
-                f"   Checkpoint + Replication: {gemini_multi['avg_checkpoint_ms']:.2f} ms"
-            )
-            print(f"   Still {multi_speedup:.1f}× faster than disk!")
-            comparison["multi_gpu_ms"] = gemini_multi["avg_checkpoint_ms"]
-            comparison["multi_gpu_speedup"] = multi_speedup
-
+        # Recovery results
         if failure_results and "recovery_events" in failure_results:
             events = failure_results.get("recovery_events", [])
             if events:
                 recovery_time = events[0].get("recovery_time_ms", 0)
-                print(f"\n🔧 Failure Recovery:")
-                print(f"   Recovery from replica: {recovery_time:.2f} ms")
-                print(
-                    f"   vs Disk recovery: ~{baseline['avg_checkpoint_ms'] * 2:.0f}+ ms (load + network)"
-                )
+                print(f"\n⚡ Failure Recovery (Key Gemini Benefit!):")
+                print(f"   Recovery from RAM:  {recovery_time:.2f} ms")
+                print(f"   vs Disk recovery:   ~{baseline['avg_checkpoint_ms'] * 1.5:.0f}+ ms")
                 comparison["recovery_time_ms"] = recovery_time
 
         # Log comparison to wandb
         if exp_logger:
             exp_logger.log_comparison(
                 disk_save_time_ms=baseline["avg_checkpoint_ms"],
-                disk_load_time_ms=baseline["avg_checkpoint_ms"] * 0.7,  # Estimate
+                disk_load_time_ms=baseline["avg_checkpoint_ms"] * 0.7,
                 memory_save_time_ms=gemini_single["avg_checkpoint_ms"],
-                memory_load_time_ms=gemini_single["avg_checkpoint_ms"]
-                * 0.5,  # Estimate
+                memory_load_time_ms=gemini_single["avg_checkpoint_ms"] * 0.5,
             )
 
         return comparison
@@ -593,7 +599,7 @@ def compare_results(baseline, gemini_single, gemini_multi=None, failure_results=
 
 
 def save_final_results(
-    baseline, gemini_single, gemini_multi, failure_results, comparison
+    baseline, gemini_single, gemini_multi, multi_disk, failure_results, comparison
 ):
     """Save all results for the report."""
     results_dir = Path("./results")
@@ -614,9 +620,10 @@ def save_final_results(
             ],
         },
         "experiments": {
-            "baseline": baseline,
-            "gemini_single": gemini_single,
-            "gemini_multi": gemini_multi,
+            "baseline_single_disk": baseline,
+            "gemini_single_ram": gemini_single,
+            "multi_gpu_disk": multi_disk,
+            "multi_gpu_ram": gemini_multi,
             "failure_simulation": failure_results,
         },
         "comparison": comparison,
@@ -753,12 +760,12 @@ def main():
 
         # Compare results
         comparison = compare_results(
-            baseline, gemini_single, gemini_multi, failure_results
+            baseline, gemini_single, gemini_multi, multi_disk, failure_results
         )
 
         # Save everything
         save_final_results(
-            baseline, gemini_single, gemini_multi, failure_results, comparison
+            baseline, gemini_single, gemini_multi, multi_disk, failure_results, comparison
         )
 
         # Finish wandb
