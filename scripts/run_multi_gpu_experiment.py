@@ -34,6 +34,10 @@ from datetime import datetime
 
 CHECK_POINT_FRQ = 25
 
+HIDDEN_SIZE = 1024
+NUM_LAYERS = 12
+NUM_HEADS = 16
+
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -124,9 +128,9 @@ def run_single_gpu_baseline(iterations=100, checkpoint_freq=CHECK_POINT_FRQ):
     from src.utils import SyntheticDataset
 
     config = TrainingConfig(
-        hidden_size=512,
-        num_layers=4,
-        num_heads=8,
+        hidden_size=HIDDEN_SIZE,
+        num_layers=NUM_LAYERS,
+        num_heads=NUM_HEADS,
         batch_size=8,
         max_iterations=iterations,
         checkpoint_frequency=checkpoint_freq,
@@ -184,9 +188,9 @@ def run_single_gpu_gemini(iterations=100, checkpoint_freq=CHECK_POINT_FRQ):
     from src.utils import SyntheticDataset
 
     config = TrainingConfig(
-        hidden_size=512,
-        num_layers=4,
-        num_heads=8,
+        hidden_size=HIDDEN_SIZE,
+        num_layers=NUM_LAYERS,
+        num_heads=NUM_HEADS,
         batch_size=8,
         max_iterations=iterations,
         checkpoint_frequency=checkpoint_freq,
@@ -309,9 +313,9 @@ def run_multi_gpu_gemini(num_gpus=4, iterations=100, checkpoint_freq=CHECK_POINT
     from src.training.gemini_trainer import GeminiConfig, run_gemini_worker
 
     config = GeminiConfig(
-        hidden_size=512,
-        num_layers=4,
-        num_heads=8,
+        hidden_size=HIDDEN_SIZE,
+        num_layers=NUM_LAYERS,
+        num_heads=NUM_HEADS,
         batch_size=8,
         max_iterations=iterations,
         checkpoint_frequency=checkpoint_freq,
@@ -387,9 +391,9 @@ def run_failure_simulation(
     from src.training.gemini_trainer import GeminiConfig, run_gemini_worker
 
     config = GeminiConfig(
-        hidden_size=512,
-        num_layers=4,
-        num_heads=8,
+        hidden_size=HIDDEN_SIZE,
+        num_layers=NUM_LAYERS,
+        num_heads=NUM_HEADS,
         batch_size=8,
         max_iterations=iterations,
         checkpoint_frequency=checkpoint_freq,

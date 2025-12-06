@@ -357,7 +357,8 @@ class GeminiTrainer:
 
         # 6. Store the received replica
         # The replica we received is from recv_source
-        recv_bytes = bytes(recv_tensor.cpu().numpy().tobytes())
+        # Use numpy's tobytes() directly - much faster than bytes() wrapper
+        recv_bytes = recv_tensor.cpu().numpy().tobytes()
         self.replicator.store_replica(recv_source, iteration, recv_bytes)
 
         # Cleanup VRAM
