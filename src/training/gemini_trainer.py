@@ -240,9 +240,11 @@ class GeminiTrainer:
         """
         Gemini-style checkpoint: Save to RAM + replicate to peers.
         """
+        import gc # Ensure gc is imported
+        
         timings = {}
         
-        # Step 1: Save to RAM
+        # Step 1: Save to local RAM
         save_start = time.time()
         self.checkpoint_manager.save(model, optimizer, iteration)
         timings['local_save_ms'] = (time.time() - save_start) * 1000
@@ -258,13 +260,18 @@ class GeminiTrainer:
         
         timings['total_ms'] = timings['local_save_ms'] + timings['replication_ms']
         
-        # --- NEW: CLEANUP OLD REPLICAS ---
-        # Keep only the last 3 checkpoints to prevent RAM explosion
-        keep_iters = [iteration, iteration - self.config.checkpoint_frequency, iteration - 2*self.config.checkpoint_frequency]
-        # Filter out negative iterations
+        # --- CLEANUP LOGIC ---
+        # 1. Delete old replicas from our dictionary
+        keep_iters = [iteration, iteration - self.config.checkpoint_frequency] 
         keep_iters = [i for i in keep_iters if i >= 0]
         self.replicator.cleanup_old_replicas(keep_iters)
-        # ---------------------------------
+        
+        # 2. Force Python to release the memory of the bytes/tensors used above
+        del checkpoint_bytes
+        
+        # 3. Force Garbage Collection to return RAM to OS immediately
+        gc.collect()
+        # ---------------------
 
         self.checkpoint_times.append({
             'iteration': iteration,
