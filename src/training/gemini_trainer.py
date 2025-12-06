@@ -485,73 +485,76 @@ class GeminiTrainer:
                     self.is_failed = True
                     # In real failure, process would die. Here we skip training.
 
-                if self.is_failed:
-                    # Skip training if "failed"
-                    dist.barrier(device_ids=[self.local_rank])  # Still sync with others
-                    iteration += 1
-                    continue
+                # Training step (skip if failed)
+                if not self.is_failed:
+                    step_start = time.time()
+                    loss = self.train_step(model, batch, optimizer)
+                    step_time = time.time() - step_start
 
-                step_start = time.time()
-                loss = self.train_step(model, batch, optimizer)
-                step_time = time.time() - step_start
+                    samples_per_sec = self.config.batch_size / step_time
+                    total_samples += self.config.batch_size
 
-                samples_per_sec = self.config.batch_size / step_time
-                total_samples += self.config.batch_size
+                    # Logging
+                    if iteration % self.config.log_interval == 0 and self.rank == 0:
+                        logger.info(
+                            f"Iter {iteration}/{self.config.max_iterations} | "
+                            f"Loss: {loss:.4f} | "
+                            f"Throughput: {samples_per_sec:.1f} samples/s"
+                        )
 
-                # Logging
-                if iteration % self.config.log_interval == 0 and self.rank == 0:
-                    logger.info(
-                        f"Iter {iteration}/{self.config.max_iterations} | "
-                        f"Loss: {loss:.4f} | "
-                        f"Throughput: {samples_per_sec:.1f} samples/s"
-                    )
+                # IMPORTANT: All GPUs must participate in failure detection together
+                # This must happen at the same point in ALL GPUs to avoid collective op mismatch
+                failure_flag = torch.tensor(
+                    [1 if self.is_failed else 0],
+                    dtype=torch.int,
+                    device=self.device,
+                )
+                dist.all_reduce(failure_flag, op=dist.ReduceOp.MAX)
+                any_failed = failure_flag.item() > 0
 
                 # Gemini checkpoint (RAM + replication)
                 checkpoint_timings = None
                 if iteration > 0 and iteration % self.config.checkpoint_frequency == 0:
-                    # Check if any GPU has failed before checkpointing (avoid barrier deadlock)
-                    failure_flag = torch.tensor(
-                        [1 if self.is_failed else 0],
-                        dtype=torch.int,
-                        device=self.device,
-                    )
-                    dist.all_reduce(failure_flag, op=dist.ReduceOp.MAX)
-                    any_failed = failure_flag.item() > 0
-
                     if not any_failed:
                         checkpoint_timings = self.save_checkpoint_gemini(
                             model, optimizer, iteration
                         )
                     else:
-                        # Skip checkpointing if any GPU has failed to avoid deadlock
+                        # Skip checkpointing if any GPU has failed
                         if self.rank == 0:
                             logger.warning(
                                 f"Skipping checkpoint at iter {iteration} due to GPU failure"
                             )
-                        # Still need to sync with other GPUs
+                        # All GPUs must sync here to stay together
                         dist.barrier(device_ids=[self.local_rank])
 
-                # Record metrics
-                self.metrics_history.append(
-                    TrainingMetrics(
-                        iteration=iteration,
-                        loss=loss,
-                        throughput=samples_per_sec,
-                        checkpoint_time=(
-                            checkpoint_timings["total_ms"] / 1000
-                            if checkpoint_timings
-                            else 0
-                        ),
-                        recovery_time=0,
-                        timestamp=time.time(),
+                # Record metrics (only if not failed)
+                if not self.is_failed:
+                    self.metrics_history.append(
+                        TrainingMetrics(
+                            iteration=iteration,
+                            loss=loss,
+                            throughput=samples_per_sec,
+                            checkpoint_time=(
+                                checkpoint_timings["total_ms"] / 1000
+                                if checkpoint_timings
+                                else 0
+                            ),
+                            recovery_time=0,
+                            timestamp=time.time(),
+                        )
                     )
-                )
 
                 iteration += 1
 
         total_time = time.time() - start_time
 
         # Gather results
+        # Get final loss from metrics if available
+        final_loss = None
+        if self.metrics_history and not self.is_failed:
+            final_loss = self.metrics_history[-1].loss
+
         results = {
             "rank": self.rank,
             "total_iterations": iteration,
@@ -560,7 +563,7 @@ class GeminiTrainer:
             "average_throughput": total_samples / total_time if total_time > 0 else 0,
             "checkpoint_times": self.checkpoint_times,
             "recovery_events": self.recovery_events,
-            "final_loss": loss if not self.is_failed else None,
+            "final_loss": final_loss,
         }
 
         # Sync all GPUs before saving results
