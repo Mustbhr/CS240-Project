@@ -556,11 +556,9 @@ class GeminiTrainer:
                 
                 # Measure recovery time - this is the KEY Gemini benefit!
                 recovery_start = time.time()
-                loaded_state = self.checkpoint_manager.load(latest_iter, map_location=self.device)
                 
-                model_to_load = model.module if hasattr(model, 'module') else model
-                model_to_load.load_state_dict(loaded_state['model_state_dict'])
-                optimizer.load_state_dict(loaded_state['optimizer_state_dict'])
+                # load() takes model, optimizer, iteration, device and loads directly
+                self.checkpoint_manager.load(model, optimizer, latest_iter, self.device)
                 
                 recovery_time_ms = (time.time() - recovery_start) * 1000
                 
