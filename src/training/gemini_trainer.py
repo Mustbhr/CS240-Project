@@ -316,6 +316,9 @@ class GeminiTrainer:
             logger.error(f"[GPU {self.rank}] Error converting bytes: {e}")
             raise e
 
+        # Barrier to ensure all GPUs finish conversion before continuing
+        dist.barrier(device_ids=[self.local_rank])
+
         # 2. Determine ring targets for point-to-point replication
         # Send target: (rank + 1) % world_size (next GPU in ring)
         send_target = (self.rank + 1) % self.world_size
