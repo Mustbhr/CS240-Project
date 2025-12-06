@@ -195,7 +195,8 @@ class GeminiTrainer:
             dist.init_process_group(
                 backend="nccl",
                 rank=self.rank,
-                world_size=self.world_size
+                world_size=self.world_size,
+                device_id=torch.device(f"cuda:{self.local_rank}")  # Suppress warning
             )
         logger.info(f"[GPU {self.rank}] Distributed setup complete")
     
