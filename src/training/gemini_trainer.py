@@ -227,7 +227,7 @@ class GeminiTrainer:
             dataset,
             batch_size=self.config.batch_size,
             sampler=sampler,
-            num_workers=2,
+            num_workers=0,
             pin_memory=True
         )
     
@@ -239,28 +239,33 @@ class GeminiTrainer:
     ) -> Dict[str, float]:
         """
         Gemini-style checkpoint: Save to RAM + replicate to peers.
-        
-        Returns timing information for analysis.
         """
         timings = {}
         
-        # Step 1: Save to local RAM (fast!)
+        # Step 1: Save to RAM
         save_start = time.time()
         self.checkpoint_manager.save(model, optimizer, iteration)
         timings['local_save_ms'] = (time.time() - save_start) * 1000
         
-        # Step 2: Get checkpoint bytes for replication
+        # Step 2: Get checkpoint bytes
         checkpoint_bytes = self.checkpoint_manager.get_checkpoint_bytes(iteration)
         timings['checkpoint_size_mb'] = len(checkpoint_bytes) / (1024 * 1024)
         
-        # Step 3: Replicate to peer GPUs
+        # Step 3: Replicate
         replication_start = time.time()
         self._replicate_checkpoint(iteration, checkpoint_bytes)
         timings['replication_ms'] = (time.time() - replication_start) * 1000
         
         timings['total_ms'] = timings['local_save_ms'] + timings['replication_ms']
         
-        # Log
+        # --- NEW: CLEANUP OLD REPLICAS ---
+        # Keep only the last 3 checkpoints to prevent RAM explosion
+        keep_iters = [iteration, iteration - self.config.checkpoint_frequency, iteration - 2*self.config.checkpoint_frequency]
+        # Filter out negative iterations
+        keep_iters = [i for i in keep_iters if i >= 0]
+        self.replicator.cleanup_old_replicas(keep_iters)
+        # ---------------------------------
+
         self.checkpoint_times.append({
             'iteration': iteration,
             'type': 'gemini',
@@ -268,12 +273,13 @@ class GeminiTrainer:
             'timestamp': time.time()
         })
         
-        logger.info(
-            f"[GPU {self.rank}] Gemini checkpoint at iter {iteration}: "
-            f"save={timings['local_save_ms']:.1f}ms, "
-            f"replicate={timings['replication_ms']:.1f}ms, "
-            f"size={timings['checkpoint_size_mb']:.2f}MB"
-        )
+        if self.rank == 0:
+            logger.info(
+                f"[GPU {self.rank}] Gemini checkpoint at iter {iteration}: "
+                f"save={timings['local_save_ms']:.1f}ms, "
+                f"replicate={timings['replication_ms']:.1f}ms, "
+                f"size={timings['checkpoint_size_mb']:.2f}MB"
+            )
         
         return timings
     
