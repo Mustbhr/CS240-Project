@@ -280,49 +280,51 @@ class GeminiTrainer:
     def _replicate_checkpoint(self, iteration: int, checkpoint_bytes: bytes):
         """
         Replicate checkpoint to peer GPUs.
-        
-        Uses torch.distributed for communication between GPUs.
         """
-        targets = self.replicator.get_replica_targets(self.rank)
+        import numpy as np # Ensure numpy is imported
         
-        # For each target, we need to send our checkpoint
-        # In a real implementation, this would use actual network transfer
-        # Here we simulate by using distributed broadcast/gather
+        # 1. FIX: Optimize Byte Conversion
+        # OLD SLOW WAY: checkpoint_tensor = torch.ByteTensor(list(checkpoint_bytes)).to(self.device)
+        # NEW FAST WAY: Use numpy to avoid creating 400 million python objects
+        np_array = np.frombuffer(checkpoint_bytes, dtype=np.uint8)
+        # copy() is needed because frombuffer is read-only, and torch needs writable
+        checkpoint_tensor = torch.from_numpy(np_array.copy()).to(self.device)
         
-        # Synchronize all GPUs (specify device to avoid warning)
+        size_tensor = torch.tensor([len(checkpoint_tensor)], dtype=torch.long, device=self.device)
+
+        # 2. FIX: Explicit Barrier Device to stop warnings/deadlocks
         dist.barrier(device_ids=[self.local_rank])
-        
-        # Each GPU broadcasts its checkpoint to others
-        # Using all_gather to collect checkpoints from all GPUs
-        checkpoint_tensor = torch.ByteTensor(list(checkpoint_bytes)).to(self.device)
-        size_tensor = torch.tensor([len(checkpoint_bytes)], device=self.device)
-        
+
         # Gather all sizes first
         all_sizes = [torch.zeros(1, dtype=torch.long, device=self.device) for _ in range(self.world_size)]
         dist.all_gather(all_sizes, size_tensor)
-        
+
         # Gather all checkpoints (padded to max size)
         max_size = max(s.item() for s in all_sizes)
+        
+        # Pre-allocate output buffer
         padded_checkpoint = torch.zeros(max_size, dtype=torch.uint8, device=self.device)
-        padded_checkpoint[:len(checkpoint_bytes)] = checkpoint_tensor
-        
+        padded_checkpoint[:len(checkpoint_tensor)] = checkpoint_tensor
+
         all_checkpoints = [torch.zeros(max_size, dtype=torch.uint8, device=self.device) for _ in range(self.world_size)]
-        dist.all_gather(all_checkpoints, padded_checkpoint)
         
-        # Store replicas from GPUs we're responsible for backing up
+        # 3. Perform the heavy transfer
+        dist.all_gather(all_checkpoints, padded_checkpoint)
+
+        # Store replicas
         for source_rank in range(self.world_size):
             if source_rank == self.rank:
-                continue  # Don't store our own
-            
-            # Check if we should store this GPU's replica
+                continue
+
             their_targets = self.replicator.get_replica_targets(source_rank)
             if self.rank in their_targets:
-                # Extract their checkpoint (up to their actual size)
                 their_size = int(all_sizes[source_rank].item())
-                their_bytes = bytes(all_checkpoints[source_rank][:their_size].cpu().tolist())
+                # Move back to CPU and convert to bytes
+                their_bytes = bytes(all_checkpoints[source_rank][:their_size].cpu().numpy().tobytes())
                 self.replicator.store_replica(source_rank, iteration, their_bytes)
-        
+
         dist.barrier(device_ids=[self.local_rank])
+
     
     def recover_from_failure(
         self,
