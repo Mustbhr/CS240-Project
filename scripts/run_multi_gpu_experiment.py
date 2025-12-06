@@ -638,6 +638,12 @@ def main():
             }
         )
 
+        # Clear GPU memory after baseline
+        import gc
+
+        gc.collect()
+        torch.cuda.empty_cache()
+
         # Experiment 2: Single-GPU Gemini (Memory)
         gemini_single = run_single_gpu_gemini(args.iterations, args.checkpoint_freq)
 
@@ -649,6 +655,17 @@ def main():
                 "gemini/memory_mb": gemini_single.get("memory_mb", 0),
             }
         )
+
+        # CRITICAL: Clear GPU memory before multi-GPU experiments
+        # The single-GPU tests may have left memory allocated
+        import gc
+
+        gc.collect()
+        torch.cuda.empty_cache()
+        for i in range(torch.cuda.device_count()):
+            with torch.cuda.device(i):
+                torch.cuda.empty_cache()
+        print("\n🧹 Cleared GPU memory before multi-GPU experiments")
 
         # Experiment 3: Multi-GPU Gemini with replication
         gemini_multi = None

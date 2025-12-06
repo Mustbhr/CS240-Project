@@ -160,10 +160,11 @@ class GeminiTrainer:
         self.device = torch.device(f"cuda:{local_rank}")
 
         # In-memory checkpoint manager
+        # Keep only 2 checkpoints to save memory for larger models
         self.checkpoint_manager = InMemoryCheckpoint(
             node_id=f"gpu-{rank}",
-            max_checkpoints=3,
-            max_memory_gb=2.0,  # Each GPU uses up to 2GB for checkpoints
+            max_checkpoints=2,
+            max_memory_gb=4.0,  # Each GPU uses up to 4GB for checkpoints (model + replica)
         )
 
         # Checkpoint replicator
