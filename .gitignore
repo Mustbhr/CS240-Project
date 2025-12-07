@@ -63,7 +63,8 @@ data/processed/
 *.tar.gz
 *.zip
 *.pdf
-
+!CS240_Project_Report.pdf
+!CS240_Project_Presentation.pdf
 # Cluster specific
 hostfile
 nodelist.txt
