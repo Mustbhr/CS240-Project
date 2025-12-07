@@ -305,5 +305,5 @@ if __name__ == "__main__":
         print(f"Batch label shape: {batch['labels'].shape}")
         break
     
-    print("\n✓ Data loading utilities working!")
+    print("\nData loading utilities working!")
 

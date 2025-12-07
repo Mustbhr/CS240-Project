@@ -23,18 +23,16 @@ This project reproduces the core Gemini system ([SOSP 2023](https://dl.acm.org/d
 - **Reliability**: Fast recovery from hardware/network failures
 - **Scalability**: Efficient checkpoint replication across nodes
 
-## Current Implementation Status
+## Implementation Status
 
 | Component | Status | Description |
 |-----------|--------|-------------|
-| Baseline Trainer | ✅ Complete | Distributed training with disk checkpointing |
-| In-Memory Checkpoint | ✅ Complete | RAM-based checkpoint storage |
-| Data Loading | ✅ Complete | Synthetic + Wikipedia dataset support |
-| Experiment Logger | ✅ Complete | wandb integration for tracking |
-| Worker Agent | 🔨 Skeleton | Needs network communication |
-| Root Agent | 🔨 Skeleton | Needs failure detection |
-| Replication Manager | ⏳ Pending | Cross-node checkpoint transfer |
-| Failure Injection | ⏳ Pending | Testing recovery performance |
+| Baseline Trainer | Complete | Distributed training with disk checkpointing |
+| In-Memory Checkpoint | Complete | RAM-based checkpoint storage |
+| Data Loading | Complete | Synthetic dataset support |
+| Experiment Logger | Complete | Metrics and visualization |
+| Replication Manager | Complete | Ring-topology checkpoint replication |
+| Failure Simulation | Complete | Application-level failure injection |
 
 ## Architecture
 
@@ -46,11 +44,10 @@ This project reproduces the core Gemini system ([SOSP 2023](https://dl.acm.org/d
 5. **Experiment Logger**: wandb integration for metrics and visualization
 
 ### Technologies
-- **Framework**: PyTorch with DistributedDataParallel (DDP)
-- **Communication**: NCCL (planned), TCP for checkpoint transfer
-- **Logging**: Weights & Biases (wandb)
-- **Language**: Python 3.9+
-- **Hardware**: KAUST IBEX cluster (tested on single GPU node)
+- **Framework**: PyTorch 2.8 with DistributedDataParallel (DDP)
+- **Communication**: NCCL for gradients, TCP for checkpoint transfer
+- **Language**: Python 3.9+, CUDA 12.9
+- **Hardware**: 4x NVIDIA A100 GPUs (Vast.ai cloud)
 
 ## Project Structure
 
@@ -64,22 +61,24 @@ This project reproduces the core Gemini system ([SOSP 2023](https://dl.acm.org/d
 │   └── milestones.md            # Project timeline and progress
 ├── src/
 │   ├── agents/
-│   │   ├── worker_agent.py      # Worker node agent (skeleton)
-│   │   └── root_agent.py        # Root coordinator (skeleton)
+│   │   ├── worker_agent.py      # Worker node agent
+│   │   └── root_agent.py        # Root coordinator
 │   ├── checkpointing/
-│   │   └── in_memory_checkpoint.py  # ✅ RAM-based checkpointing
+│   │   └── in_memory_checkpoint.py  # RAM-based checkpointing
 │   ├── training/
-│   │   └── baseline_trainer.py  # ✅ Baseline with disk checkpointing
+│   │   ├── baseline_trainer.py  # Baseline with disk checkpointing
+│   │   └── gemini_trainer.py    # Gemini distributed trainer
 │   └── utils/
-│       ├── data_loader.py       # ✅ Dataset utilities
-│       └── experiment_logger.py # ✅ wandb integration
+│       ├── data_loader.py       # Dataset utilities
+│       └── experiment_logger.py # Experiment logging
 ├── configs/
 │   ├── training_config.yaml.template
 │   └── cluster_config.yaml.template
 ├── scripts/
-│   ├── quick_test.py            # ✅ Quick verification test
-│   ├── run_baseline_test.py     # ✅ Full infrastructure test
-│   ├── ibex_test.sh             # SLURM batch script
+│   ├── quick_test.py            # Quick verification test
+│   ├── run_baseline_test.py     # Full infrastructure test
+│   ├── run_multi_gpu_experiment.py  # Main experiment script
+│   ├── generate_figures.py      # Results visualization
 │   └── setup_environment.sh     # Environment setup
 ├── tests/
 │   └── test_agents.py           # Unit tests
@@ -92,43 +91,28 @@ This project reproduces the core Gemini system ([SOSP 2023](https://dl.acm.org/d
 
 ### Prerequisites
 - Python 3.9+
-- CUDA-capable GPUs
-- Access to KAUST IBEX cluster (or similar HPC)
+- CUDA-capable GPUs (tested on A100)
+- PyTorch 2.0+
 
-### Setup on IBEX
+### Quick Setup
 
 ```bash
 # 1. Clone the repository
 git clone https://github.com/Mustbhr/CS240-Project.git
 cd CS240-Project
 
-# 2. Get an interactive GPU session
-srun --nodes=1 --gpus-per-node=1 --time=00:30:00 --mem=32G --pty bash
-
-# 3. Create virtual environment
+# 2. Create virtual environment
 python -m venv venv
 source venv/bin/activate
 
-# 4. Install PyTorch with CUDA (check your CUDA version with nvidia-smi)
-python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# 3. Install PyTorch with CUDA
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
-# 5. Install other dependencies
-python -m pip install -r requirements.txt
-
-# 6. Run quick test
-python scripts/quick_test.py
-```
-
-### Setup Locally (for development)
-
-```bash
-# Clone and setup
-git clone https://github.com/Mustbhr/CS240-Project.git
-cd CS240-Project
-python -m venv venv
-source venv/bin/activate
-pip install torch torchvision
+# 4. Install other dependencies
 pip install -r requirements.txt
+
+# 5. Run quick test
+python scripts/quick_test.py
 ```
 
 ## Usage
@@ -140,41 +124,39 @@ python scripts/quick_test.py
 
 ### Full Infrastructure Test
 ```bash
-# Without wandb logging
 python scripts/run_baseline_test.py
-
-# With wandb logging (requires wandb login)
-python scripts/run_baseline_test.py --wandb
 ```
 
-### Expected Output
-The tests compare disk-based vs memory-based checkpointing:
-```
-COMPARISON RESULTS
-========================================
-Save speedup:     X.XXx faster
-Load speedup:     X.XXx faster
-Recovery speedup: X.XXx faster
+### Run Multi-GPU Experiment
+```bash
+# Run experiments with multiple GPUs
+python scripts/run_multi_gpu_experiment.py --num-runs 3
 ```
 
-## Key Results (Preliminary)
+### Generate Figures
+```bash
+python scripts/generate_figures.py
+```
 
-Testing on KAUST IBEX (single node):
-- **Disk checkpoint save**: ~XXX ms
-- **Memory checkpoint save**: ~XX ms
-- **Speedup**: ~10-15× faster (varies by model size)
 
-*Full multi-node results pending cluster access.*
+## Key Results
+
+Tested on 4x NVIDIA A100 GPUs (Vast.ai):
+- **Disk checkpoint save**: 7,012 ms
+- **Memory checkpoint save**: 512 ms  
+- **Checkpoint Speedup**: 13.7x faster
+- **Recovery Speedup**: 6.1x faster
+- **Throughput Improvement**: +100%
 
 ## Milestones
 
 | Week | Milestone | Status |
 |------|-----------|--------|
-| 1 | Environment setup + baseline | ✅ Complete |
-| 2 | In-memory checkpointing | ✅ Complete |
-| 3 | Replication + failure detection | 🔨 In Progress |
-| 4 | Failure injection + recovery | ⏳ Pending |
-| 5-6 | Integration + final report | ⏳ Pending |
+| 1 | Environment setup + baseline | Complete |
+| 2 | In-memory checkpointing | Complete |
+| 3 | Replication + failure detection | Complete |
+| 4 | Failure injection + recovery | Complete |
+| 5-6 | Integration + final report | Complete |
 
 ## References
 

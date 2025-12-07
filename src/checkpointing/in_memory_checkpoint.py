@@ -585,4 +585,4 @@ if __name__ == "__main__":
     print(f"   Avg save time: {stats['avg_save_time_s']:.4f}s")
     print(f"   Avg load time: {stats['avg_load_time_s']:.4f}s")
 
-    print("\n✓ InMemoryCheckpoint working!")
+    print("\nInMemoryCheckpoint working!")

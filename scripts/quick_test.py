@@ -22,50 +22,50 @@ def check_environment():
     print("=" * 50)
     
     # Python version
-    print(f"\n✓ Python: {sys.version}")
+    print(f"\n[OK] Python: {sys.version}")
     
     # PyTorch
     try:
         import torch
-        print(f"✓ PyTorch: {torch.__version__}")
-        print(f"✓ CUDA available: {torch.cuda.is_available()}")
+        print(f"[OK] PyTorch: {torch.__version__}")
+        print(f"[OK] CUDA available: {torch.cuda.is_available()}")
         if torch.cuda.is_available():
-            print(f"✓ GPU: {torch.cuda.get_device_name(0)}")
-            print(f"✓ GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+            print(f"[OK] GPU: {torch.cuda.get_device_name(0)}")
+            print(f"[OK] GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
     except ImportError:
-        print("✗ PyTorch not installed")
+        print("[FAIL] PyTorch not installed")
         return False
     
     # Our modules
     try:
         from src.training import BaselineTrainer, TrainingConfig
-        print("✓ BaselineTrainer module loaded")
+        print("[OK] BaselineTrainer module loaded")
     except ImportError as e:
-        print(f"✗ Failed to load BaselineTrainer: {e}")
+        print(f"[FAIL] Failed to load BaselineTrainer: {e}")
         return False
     
     try:
         from src.checkpointing import InMemoryCheckpoint
-        print("✓ InMemoryCheckpoint module loaded")
+        print("[OK] InMemoryCheckpoint module loaded")
     except ImportError as e:
-        print(f"✗ Failed to load InMemoryCheckpoint: {e}")
+        print(f"[FAIL] Failed to load InMemoryCheckpoint: {e}")
         return False
     
     try:
         from src.utils import SyntheticDataset, ExperimentLogger
-        print("✓ Utils modules loaded")
+        print("[OK] Utils modules loaded")
     except ImportError as e:
-        print(f"✗ Failed to load utils: {e}")
+        print(f"[FAIL] Failed to load utils: {e}")
         return False
     
     # wandb (optional)
     try:
         import wandb
-        print(f"✓ wandb: {wandb.__version__} (optional)")
+        print(f"[OK] wandb: {wandb.__version__} (optional)")
     except ImportError:
         print("○ wandb not installed (optional)")
     
-    print("\n✓ All required modules loaded!")
+    print("\n[OK] All required modules loaded!")
     return True
 
 
@@ -90,18 +90,18 @@ def test_model():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     
-    print(f"✓ Model created on {device}")
-    print(f"✓ Parameters: {sum(p.numel() for p in model.parameters()):,}")
+    print(f"[OK] Model created on {device}")
+    print(f"[OK] Parameters: {sum(p.numel() for p in model.parameters()):,}")
     
     # Test forward pass
     batch = torch.randint(0, 1000, (4, 63)).to(device)  # batch_size=4, seq_len=63
     output = model(batch)
-    print(f"✓ Forward pass: input {batch.shape} → output {output.shape}")
+    print(f"[OK] Forward pass: input {batch.shape} → output {output.shape}")
     
     # Test backward pass
     loss = output.sum()
     loss.backward()
-    print("✓ Backward pass completed")
+    print("[OK] Backward pass completed")
     
     return True
 
@@ -128,7 +128,7 @@ def test_checkpoint():
     
     # Save checkpoint
     save_time = ckpt.save(model, optimizer, iteration=100)
-    print(f"✓ Checkpoint saved in {save_time*1000:.2f} ms")
+    print(f"[OK] Checkpoint saved in {save_time*1000:.2f} ms")
     
     # Modify model
     with torch.no_grad():
@@ -136,11 +136,11 @@ def test_checkpoint():
     
     # Load checkpoint
     load_time = ckpt.load(model, optimizer, iteration=100)
-    print(f"✓ Checkpoint loaded in {load_time*1000:.2f} ms")
+    print(f"[OK] Checkpoint loaded in {load_time*1000:.2f} ms")
     
     # Stats
     stats = ckpt.get_stats()
-    print(f"✓ Memory used: {stats['current_memory_mb']:.2f} MB")
+    print(f"[OK] Memory used: {stats['current_memory_mb']:.2f} MB")
     
     return True
 
@@ -187,9 +187,9 @@ def test_training_step():
     print("Running 5 training iterations...")
     results = trainer.train(dataset, resume=False)
     
-    print(f"✓ Completed {results['total_iterations']} iterations")
-    print(f"✓ Final loss: {results['final_loss']:.4f}")
-    print(f"✓ Throughput: {results['average_throughput']:.1f} samples/sec")
+    print(f"[OK] Completed {results['total_iterations']} iterations")
+    print(f"[OK] Final loss: {results['final_loss']:.4f}")
+    print(f"[OK] Throughput: {results['average_throughput']:.1f} samples/sec")
     
     return True
 
@@ -206,7 +206,7 @@ def main():
     
     # Test 1: Environment
     if not check_environment():
-        print("\n❌ Environment check failed!")
+        print("\n[FAILED] Environment check failed!")
         return 1
     
     # Test 2: Model
@@ -214,7 +214,7 @@ def main():
         if not test_model():
             all_passed = False
     except Exception as e:
-        print(f"\n❌ Model test failed: {e}")
+        print(f"\n[FAILED] Model test failed: {e}")
         all_passed = False
     
     # Test 3: Checkpoint
@@ -222,7 +222,7 @@ def main():
         if not test_checkpoint():
             all_passed = False
     except Exception as e:
-        print(f"\n❌ Checkpoint test failed: {e}")
+        print(f"\n[FAILED] Checkpoint test failed: {e}")
         all_passed = False
     
     # Test 4: Training
@@ -230,7 +230,7 @@ def main():
         if not test_training_step():
             all_passed = False
     except Exception as e:
-        print(f"\n❌ Training test failed: {e}")
+        print(f"\n[FAILED] Training test failed: {e}")
         import traceback
         traceback.print_exc()
         all_passed = False
@@ -238,7 +238,7 @@ def main():
     # Summary
     print("\n" + "=" * 50)
     if all_passed:
-        print("✅ ALL TESTS PASSED!")
+        print("[PASSED] ALL TESTS PASSED!")
         print("=" * 50)
         print("\nYour environment is ready. Next steps:")
         print("1. Run full test: python scripts/run_baseline_test.py")
@@ -246,7 +246,7 @@ def main():
         print("3. Test with multiple nodes when ready")
         return 0
     else:
-        print("❌ SOME TESTS FAILED")
+        print("[FAILED] SOME TESTS FAILED")
         print("=" * 50)
         return 1
 

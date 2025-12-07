@@ -1,0 +1,36 @@
+
+================================================================================
+                    EXPERIMENT RESULTS SUMMARY
+================================================================================
+
+Configuration:
+  - Iterations: 100
+  - Checkpoint Frequency: Every 25 iterations
+  - Model: 12-layer Transformer (1024 hidden, 16 heads)
+  - Number of Runs: 3 (averaged)
+
+--------------------------------------------------------------------------------
+SINGLE-GPU RESULTS
+--------------------------------------------------------------------------------
+                          Disk-based          RAM-based (Gemini)     Speedup
+Checkpoint Save Time      7012 +/- 350 ms    512 +/- 3 ms          13.7x
+Recovery Time             820 +/- 110 ms     134 +/- 57 ms           6.8x
+Throughput (iter/sec)     20.1 +/- 0.6        40.3 +/- 0.1          +101%
+
+--------------------------------------------------------------------------------
+MULTI-GPU RESULTS (4 GPUs)
+--------------------------------------------------------------------------------
+                          Disk-based          RAM-based (Gemini)     Speedup
+Checkpoint Save Time      4673 +/- 315 ms   512 +/- 3 ms (local)  9.1x
+Recovery Time             1145 +/- 71 ms    248 +/- 93 ms           5.5x
+
+--------------------------------------------------------------------------------
+KEY FINDINGS
+--------------------------------------------------------------------------------
+- Single-GPU checkpoint speedup: 13.7x (target: 10-15x)
+- Single-GPU recovery speedup: 6.8x (target: 10-13x)
+- Multi-GPU recovery speedup: 5.5x
+- Throughput improvement: +101%
+- Memory overhead: ~1942 MB per checkpoint
+
+================================================================================

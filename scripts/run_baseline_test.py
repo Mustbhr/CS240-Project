@@ -87,7 +87,7 @@ def test_baseline_trainer(use_wandb: bool = False):
         print(f"  Average checkpoint time: {avg_checkpoint_time:.3f}s")
     
     if use_wandb:
-        print("\n📊 Check wandb dashboard for interactive plots!")
+        print("\nCheck wandb dashboard for interactive plots!")
     
     return results
 
@@ -221,7 +221,7 @@ def compare_disk_vs_memory():
     print(f"Load speedup:     {comparison['load_speedup']:.2f}x faster")
     print(f"Recovery speedup: {comparison['recovery_speedup']:.2f}x faster")
     
-    print("\n💡 In a real NFS environment, the speedup would be even larger!")
+    print("\nIn a real NFS environment, the speedup would be even larger!")
     print("   NFS adds network latency, disk seek time, and I/O queue delays.")
     print("   Expected real-world speedup: 10-15x")
     
@@ -284,7 +284,7 @@ def main():
     print("It verifies that the training and checkpointing infrastructure works.")
     
     if args.wandb:
-        print("\n🔗 wandb logging is ENABLED")
+        print("\nwandb logging is ENABLED")
         print("   Make sure you're logged in: wandb login")
     print()
     
@@ -304,7 +304,7 @@ def main():
             test_experiment_logger()
         
         print("\n" + "=" * 60)
-        print("ALL TESTS PASSED! ✓")
+        print("ALL TESTS PASSED!")
         print("=" * 60)
         print("\nNext steps:")
         print("1. Get IBEX access with 2-4 nodes")
@@ -313,11 +313,11 @@ def main():
         print("4. Add failure injection and recovery")
         
         if args.wandb:
-            print("\n📊 Check your wandb dashboard:")
+            print("\nCheck your wandb dashboard:")
             print("   https://wandb.ai/your-username/gemini-cs240")
         
     except Exception as e:
-        print(f"\n❌ Test failed with error: {e}")
+        print(f"\nTest failed with error: {e}")
         import traceback
         traceback.print_exc()
         return 1

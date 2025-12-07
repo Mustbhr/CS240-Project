@@ -517,5 +517,5 @@ if __name__ == "__main__":
     print("\nSummary:")
     print(json.dumps(summary, indent=2))
     
-    print("\n✓ ExperimentLogger working!")
+    print("\nExperimentLogger working!")
 

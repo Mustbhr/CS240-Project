@@ -95,7 +95,7 @@ def check_environment():
 
     # Check CUDA
     if not torch.cuda.is_available():
-        print("✗ CUDA not available!")
+        print("[FAIL] CUDA not available!")
         return False
 
     num_gpus = torch.cuda.device_count()
@@ -112,7 +112,7 @@ def check_environment():
 
         print("✓ Project modules loaded")
     except ImportError as e:
-        print(f"✗ Failed to load modules: {e}")
+        print(f"[FAIL] Failed to load modules: {e}")
         return False
 
     print()
@@ -166,7 +166,7 @@ def run_single_gpu_baseline(iterations=100, checkpoint_freq=CHECK_POINT_FRQ):
         disk_recovery_ms = (time.time() - recovery_start) * 1000
         logger.info(f"Actual disk recovery time: {disk_recovery_ms:.2f}ms")
 
-    print(f"\n📊 Baseline Results:")
+    print(f"\nBaseline Results:")
     print(f"   Total time: {total_time:.2f}s")
     print(f"   Iterations: {results['total_iterations']}")
     print(f"   Avg throughput: {results['average_throughput']:.1f} samples/s")
@@ -294,7 +294,7 @@ def run_single_gpu_gemini(iterations=100, checkpoint_freq=CHECK_POINT_FRQ):
         ram_recovery_ms = (time.time() - recovery_start) * 1000
         logger.info(f"Actual RAM recovery time: {ram_recovery_ms:.2f}ms")
 
-    print(f"\n📊 Gemini Results:")
+    print(f"\nGemini Results:")
     print(f"   Total time: {total_time:.2f}s")
     print(f"   Iterations: {iteration}")
     print(f"   Avg throughput: {total_samples/total_time:.1f} samples/s")
@@ -356,7 +356,7 @@ def run_multi_gpu_disk_baseline(num_gpus=4, iterations=100, checkpoint_freq=CHEC
         checkpoint_times = [c["total_ms"] for c in results.get("checkpoint_times", [])]
         measured_recovery_ms = results.get("measured_recovery_ms", 0)
         
-        print(f"\n📊 Multi-GPU DISK Baseline Results:")
+        print(f"\nMulti-GPU DISK Baseline Results:")
         print(f"   Total time: {total_time:.2f}s")
         print(f"   GPUs used: {num_gpus}")
         print(f"   Checkpoint SAVE times: {checkpoint_times}")
@@ -414,7 +414,7 @@ def run_multi_gpu_gemini(num_gpus=4, iterations=100, checkpoint_freq=CHECK_POINT
         checkpoint_times = [c["total_ms"] for c in results.get("checkpoint_times", [])]
         measured_recovery_ms = results.get("measured_recovery_ms", 0)
 
-        print(f"\n📊 Multi-GPU Gemini (RAM) Results:")
+        print(f"\nMulti-GPU Gemini (RAM) Results:")
         print(f"   Total time: {total_time:.2f}s")
         print(f"   GPUs used: {num_gpus}")
         print(f"   Checkpoint SAVE times: {checkpoint_times}")
@@ -499,7 +499,7 @@ def run_failure_simulation(
 
         recovery_events = results.get("recovery_events", [])
 
-        print(f"\n📊 Failure Simulation Results:")
+        print(f"\nFailure Simulation Results:")
         print(f"   Total time with failure: {total_time:.2f}s")
         print(f"   Failure injected at iteration: {failure_iteration}")
         print(f"   Recovery events: {len(recovery_events)}")
@@ -616,7 +616,7 @@ def compare_results(baseline, gemini_single, gemini_multi=None, multi_disk=None,
             comparison["multi_gpu_ram_save_ms"] = ram_save_ms
             comparison["multi_gpu_replication_ms"] = replication_ms
 
-        print(f"\n📊 Training Throughput:")
+        print(f"\nTraining Throughput:")
         print(f"   Baseline:           {baseline['throughput']:.1f} samples/s")
         print(f"   Gemini:             {gemini_single['throughput']:.1f} samples/s")
 
@@ -985,7 +985,7 @@ def main():
         # Aggregate results if multiple runs
         if args.num_runs > 1:
             print("\n" + "=" * 60)
-            print("📊 AGGREGATING RESULTS FROM ALL RUNS")
+            print("AGGREGATING RESULTS FROM ALL RUNS")
             print("=" * 60)
             
             aggregated = aggregate_results(all_runs)
@@ -1015,7 +1015,7 @@ def main():
             
             if "comparison" in aggregated:
                 c = aggregated["comparison"]
-                print(f"\n   📊 Comparison:")
+                print(f"\n   Comparison:")
                 if "single_gpu_speedup_mean" in c:
                     print(f"      Checkpoint Speedup: {c['single_gpu_speedup_mean']:.1f}× ± {c['single_gpu_speedup_std']:.2f}")
                 if "recovery_speedup_mean" in c:
@@ -1069,16 +1069,16 @@ def main():
             exp_logger.finish()
 
         print("\n" + "=" * 60)
-        print("✅ ALL EXPERIMENTS COMPLETE!")
+        print("ALL EXPERIMENTS COMPLETE!")
         print("=" * 60)
 
         if args.wandb:
-            print("\n📊 View results at: https://wandb.ai/your-username/gemini-cs240")
+            print("\nView results at: https://wandb.ai/your-username/gemini-cs240")
 
         return 0
 
     except Exception as e:
-        print(f"\n❌ Experiment failed: {e}")
+        print(f"\n[ERROR] Experiment failed: {e}")
         import traceback
 
         traceback.print_exc()
