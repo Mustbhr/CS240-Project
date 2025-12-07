@@ -34,14 +34,15 @@ from datetime import datetime
 
 CHECK_POINT_FRQ = 25
 
-HIDDEN_SIZE = 512
-NUM_LAYERS = 4
-NUM_HEADS = 8
+HIDDEN_SIZE = 768
+NUM_LAYERS = 6
+NUM_HEADS = 12
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
+import numpy as np
 import logging
 
 logging.basicConfig(
@@ -728,6 +729,190 @@ def save_final_results(
     return results_file
 
 
+def aggregate_results(all_runs: list) -> dict:
+    """
+    Aggregate results from multiple runs to compute mean ± std.
+    
+    Args:
+        all_runs: List of result dictionaries from multiple runs
+        
+    Returns:
+        Dictionary with aggregated statistics (mean and std for each metric)
+    """
+    if not all_runs:
+        return {}
+    
+    if len(all_runs) == 1:
+        return all_runs[0]
+    
+    aggregated = {"num_runs": len(all_runs), "individual_runs": all_runs}
+    
+    # Collect all numeric keys from experiments
+    sample = all_runs[0]
+    
+    def aggregate_dict(key_prefix: str, dicts: list):
+        """Aggregate numeric values from a list of dicts."""
+        if not dicts or dicts[0] is None:
+            return {}
+        
+        result = {}
+        sample_dict = dicts[0]
+        
+        for key, value in sample_dict.items():
+            if key in ["type", "note", "raw_results", "recovery_events", "checkpoint_times_ms"]:
+                # Keep first value for non-numeric fields
+                result[key] = value
+                continue
+                
+            values = [d.get(key) for d in dicts if d and d.get(key) is not None]
+            
+            if not values:
+                continue
+                
+            if isinstance(value, (int, float)):
+                arr = np.array(values, dtype=float)
+                result[f"{key}_mean"] = float(np.mean(arr))
+                result[f"{key}_std"] = float(np.std(arr))
+                result[f"{key}_min"] = float(np.min(arr))
+                result[f"{key}_max"] = float(np.max(arr))
+            elif isinstance(value, list) and value and isinstance(value[0], (int, float)):
+                # For lists of numbers (like checkpoint_times_ms), compute overall stats
+                all_values = []
+                for d in dicts:
+                    if d and key in d and d[key]:
+                        all_values.extend(d[key])
+                if all_values:
+                    arr = np.array(all_values, dtype=float)
+                    result[f"{key}_mean"] = float(np.mean(arr))
+                    result[f"{key}_std"] = float(np.std(arr))
+                    
+        return result
+    
+    # Aggregate each experiment type
+    for exp_key in ["baseline", "gemini_single", "gemini_multi", "multi_disk", "failure_results", "comparison"]:
+        exp_dicts = [run.get(exp_key) for run in all_runs if run.get(exp_key)]
+        if exp_dicts:
+            aggregated[exp_key] = aggregate_dict(exp_key, exp_dicts)
+    
+    return aggregated
+
+
+def run_single_experiment(args):
+    """
+    Run a single set of all experiments.
+    
+    Returns:
+        Dictionary containing all experiment results
+    """
+    import gc
+    
+    # Experiment 1: Single-GPU Baseline (Disk)
+    baseline = run_single_gpu_baseline(args.iterations, args.checkpoint_freq)
+
+    # Log baseline to wandb
+    log_to_wandb(
+        {
+            "baseline/avg_checkpoint_save_ms": baseline["avg_checkpoint_ms"],
+            "baseline/disk_recovery_ms": baseline.get("disk_recovery_ms", 0),
+            "baseline/throughput": baseline["throughput"],
+            "baseline/total_time": baseline.get("total_time", 0),
+        }
+    )
+
+    # Clear GPU memory after baseline
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    # Experiment 2: Single-GPU Gemini (Memory)
+    gemini_single = run_single_gpu_gemini(args.iterations, args.checkpoint_freq)
+
+    # Log gemini to wandb
+    log_to_wandb(
+        {
+            "gemini_single/avg_checkpoint_save_ms": gemini_single["avg_checkpoint_ms"],
+            "gemini_single/ram_recovery_ms": gemini_single.get("ram_recovery_ms", 0),
+            "gemini_single/throughput": gemini_single["throughput"],
+            "gemini_single/memory_mb": gemini_single.get("memory_mb", 0),
+            "gemini_single/total_time": gemini_single.get("total_time", 0),
+        }
+    )
+
+    # CRITICAL: Clear GPU memory before multi-GPU experiments
+    gc.collect()
+    torch.cuda.empty_cache()
+    for i in range(torch.cuda.device_count()):
+        with torch.cuda.device(i):
+            torch.cuda.empty_cache()
+    print("\n🧹 Cleared GPU memory before multi-GPU experiments")
+
+    # Experiment 3a: Multi-GPU DISK Baseline (for fair comparison)
+    multi_disk = None
+    if not args.skip_multi and torch.cuda.device_count() >= 2:
+        num_gpus = min(args.gpus, torch.cuda.device_count())
+        multi_disk = run_multi_gpu_disk_baseline(
+            num_gpus, args.iterations, args.checkpoint_freq
+        )
+        
+        # Log multi-GPU disk to wandb
+        if multi_disk:
+            log_to_wandb(
+                {
+                    "multi_gpu_disk/avg_checkpoint_save_ms": multi_disk.get("avg_checkpoint_ms", 0),
+                    "multi_gpu_disk/disk_recovery_ms": multi_disk.get("measured_recovery_ms", 0),
+                    "multi_gpu_disk/num_gpus": multi_disk.get("num_gpus", 0),
+                    "multi_gpu_disk/total_time": multi_disk.get("total_time", 0),
+                }
+            )
+        
+        # Clear memory between experiments
+        gc.collect()
+        torch.cuda.empty_cache()
+
+    # Experiment 3b: Multi-GPU Gemini IN-MEMORY with replication
+    gemini_multi = None
+    if not args.skip_multi and torch.cuda.device_count() >= 2:
+        num_gpus = min(args.gpus, torch.cuda.device_count())
+        gemini_multi = run_multi_gpu_gemini(
+            num_gpus, args.iterations, args.checkpoint_freq
+        )
+        
+        # Log multi-GPU RAM to wandb
+        if gemini_multi:
+            log_to_wandb(
+                {
+                    "multi_gpu_ram/avg_checkpoint_save_ms": gemini_multi.get("avg_checkpoint_ms", 0),
+                    "multi_gpu_ram/ram_recovery_ms": gemini_multi.get("measured_recovery_ms", 0),
+                    "multi_gpu_ram/num_gpus": gemini_multi.get("num_gpus", 0),
+                    "multi_gpu_ram/total_time": gemini_multi.get("total_time", 0),
+                }
+            )
+
+    # Experiment 4: Failure simulation
+    failure_results = None
+    if not args.skip_failure and torch.cuda.device_count() >= 2:
+        num_gpus = min(args.gpus, torch.cuda.device_count())
+        failure_results = run_failure_simulation(
+            num_gpus=num_gpus,
+            iterations=args.iterations + 50,
+            checkpoint_freq=args.checkpoint_freq,
+            failure_iteration=args.iterations // 2,
+        )
+
+    # Compare results
+    comparison = compare_results(
+        baseline, gemini_single, gemini_multi, multi_disk, failure_results
+    )
+
+    return {
+        "baseline": baseline,
+        "gemini_single": gemini_single,
+        "gemini_multi": gemini_multi,
+        "multi_disk": multi_disk,
+        "failure_results": failure_results,
+        "comparison": comparison,
+    }
+
+
 def main():
     global exp_logger
 
@@ -751,6 +936,9 @@ def main():
         "--gpus", type=int, default=4, help="Number of GPUs for multi-GPU test"
     )
     parser.add_argument("--wandb", action="store_true", help="Enable wandb logging")
+    parser.add_argument(
+        "--num-runs", type=int, default=1, help="Number of experiment runs to average"
+    )
     args = parser.parse_args()
 
     print("\n" + "=" * 60)
@@ -759,6 +947,7 @@ def main():
     print(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Iterations: {args.iterations}")
     print(f"Checkpoint frequency: {args.checkpoint_freq}")
+    print(f"Number of runs: {args.num_runs}")
     print(f"wandb logging: {'Enabled' if args.wandb else 'Disabled'}")
     print()
 
@@ -779,112 +968,101 @@ def main():
         )
 
     try:
-        # Experiment 1: Single-GPU Baseline (Disk)
-        baseline = run_single_gpu_baseline(args.iterations, args.checkpoint_freq)
-
-        # Log baseline to wandb
-        log_to_wandb(
-            {
-                "baseline/avg_checkpoint_save_ms": baseline["avg_checkpoint_ms"],
-                "baseline/disk_recovery_ms": baseline.get("disk_recovery_ms", 0),
-                "baseline/throughput": baseline["throughput"],
-                "baseline/total_time": baseline.get("total_time", 0),
-            }
-        )
-
-        # Clear GPU memory after baseline
-        import gc
-
-        gc.collect()
-        torch.cuda.empty_cache()
-
-        # Experiment 2: Single-GPU Gemini (Memory)
-        gemini_single = run_single_gpu_gemini(args.iterations, args.checkpoint_freq)
-
-        # Log gemini to wandb
-        log_to_wandb(
-            {
-                "gemini_single/avg_checkpoint_save_ms": gemini_single["avg_checkpoint_ms"],
-                "gemini_single/ram_recovery_ms": gemini_single.get("ram_recovery_ms", 0),
-                "gemini_single/throughput": gemini_single["throughput"],
-                "gemini_single/memory_mb": gemini_single.get("memory_mb", 0),
-                "gemini_single/total_time": gemini_single.get("total_time", 0),
-            }
-        )
-
-        # CRITICAL: Clear GPU memory before multi-GPU experiments
-        # The single-GPU tests may have left memory allocated
-        import gc
-
-        gc.collect()
-        torch.cuda.empty_cache()
-        for i in range(torch.cuda.device_count()):
-            with torch.cuda.device(i):
-                torch.cuda.empty_cache()
-        print("\n🧹 Cleared GPU memory before multi-GPU experiments")
-
-        # Experiment 3a: Multi-GPU DISK Baseline (for fair comparison)
-        multi_disk = None
-        if not args.skip_multi and torch.cuda.device_count() >= 2:
-            num_gpus = min(args.gpus, torch.cuda.device_count())
-            multi_disk = run_multi_gpu_disk_baseline(
-                num_gpus, args.iterations, args.checkpoint_freq
-            )
+        all_runs = []
+        
+        for run_idx in range(args.num_runs):
+            if args.num_runs > 1:
+                print("\n" + "=" * 60)
+                print(f"🔄 RUN {run_idx + 1} OF {args.num_runs}")
+                print("=" * 60)
             
-            # Log multi-GPU disk to wandb
-            if multi_disk:
-                log_to_wandb(
-                    {
-                        "multi_gpu_disk/avg_checkpoint_save_ms": multi_disk.get("avg_checkpoint_ms", 0),
-                        "multi_gpu_disk/disk_recovery_ms": multi_disk.get("measured_recovery_ms", 0),
-                        "multi_gpu_disk/num_gpus": multi_disk.get("num_gpus", 0),
-                        "multi_gpu_disk/total_time": multi_disk.get("total_time", 0),
-                    }
-                )
+            run_results = run_single_experiment(args)
+            all_runs.append(run_results)
             
-            # Clear memory between experiments
-            gc.collect()
-            torch.cuda.empty_cache()
-
-        # Experiment 3b: Multi-GPU Gemini IN-MEMORY with replication
-        gemini_multi = None
-        if not args.skip_multi and torch.cuda.device_count() >= 2:
-            num_gpus = min(args.gpus, torch.cuda.device_count())
-            gemini_multi = run_multi_gpu_gemini(
-                num_gpus, args.iterations, args.checkpoint_freq
-            )
+            # Log run number to wandb
+            log_to_wandb({"run_number": run_idx + 1})
+        
+        # Aggregate results if multiple runs
+        if args.num_runs > 1:
+            print("\n" + "=" * 60)
+            print("📊 AGGREGATING RESULTS FROM ALL RUNS")
+            print("=" * 60)
             
-            # Log multi-GPU RAM to wandb (update existing log)
-            if gemini_multi:
-                log_to_wandb(
-                    {
-                        "multi_gpu_ram/avg_checkpoint_save_ms": gemini_multi.get("avg_checkpoint_ms", 0),
-                        "multi_gpu_ram/ram_recovery_ms": gemini_multi.get("measured_recovery_ms", 0),
-                        "multi_gpu_ram/num_gpus": gemini_multi.get("num_gpus", 0),
-                        "multi_gpu_ram/total_time": gemini_multi.get("total_time", 0),
-                    }
-                )
-
-        # Experiment 4: Failure simulation
-        failure_results = None
-        if not args.skip_failure and torch.cuda.device_count() >= 2:
-            num_gpus = min(args.gpus, torch.cuda.device_count())
-            failure_results = run_failure_simulation(
-                num_gpus=num_gpus,
-                iterations=args.iterations + 50,
-                checkpoint_freq=args.checkpoint_freq,
-                failure_iteration=args.iterations // 2,
+            aggregated = aggregate_results(all_runs)
+            
+            # Print aggregated statistics
+            print(f"\n📈 Aggregated Results ({args.num_runs} runs):")
+            
+            if "baseline" in aggregated:
+                b = aggregated["baseline"]
+                print(f"\n   Baseline (Disk):")
+                if "avg_checkpoint_ms_mean" in b:
+                    print(f"      Avg checkpoint: {b['avg_checkpoint_ms_mean']:.2f} ± {b['avg_checkpoint_ms_std']:.2f} ms")
+                if "disk_recovery_ms_mean" in b:
+                    print(f"      Disk recovery:  {b['disk_recovery_ms_mean']:.2f} ± {b['disk_recovery_ms_std']:.2f} ms")
+                if "throughput_mean" in b:
+                    print(f"      Throughput:     {b['throughput_mean']:.1f} ± {b['throughput_std']:.1f} samples/s")
+            
+            if "gemini_single" in aggregated:
+                g = aggregated["gemini_single"]
+                print(f"\n   Gemini (RAM):")
+                if "avg_checkpoint_ms_mean" in g:
+                    print(f"      Avg checkpoint: {g['avg_checkpoint_ms_mean']:.2f} ± {g['avg_checkpoint_ms_std']:.2f} ms")
+                if "ram_recovery_ms_mean" in g:
+                    print(f"      RAM recovery:   {g['ram_recovery_ms_mean']:.2f} ± {g['ram_recovery_ms_std']:.2f} ms")
+                if "throughput_mean" in g:
+                    print(f"      Throughput:     {g['throughput_mean']:.1f} ± {g['throughput_std']:.1f} samples/s")
+            
+            if "comparison" in aggregated:
+                c = aggregated["comparison"]
+                print(f"\n   📊 Comparison:")
+                if "single_gpu_speedup_mean" in c:
+                    print(f"      Checkpoint Speedup: {c['single_gpu_speedup_mean']:.1f}× ± {c['single_gpu_speedup_std']:.2f}")
+                if "recovery_speedup_mean" in c:
+                    print(f"      Recovery Speedup:   {c['recovery_speedup_mean']:.1f}× ± {c['recovery_speedup_std']:.2f}")
+            
+            # Log aggregated stats to wandb
+            if exp_logger and "comparison" in aggregated:
+                log_to_wandb({
+                    "aggregated/num_runs": args.num_runs,
+                    "aggregated/checkpoint_speedup_mean": aggregated["comparison"].get("single_gpu_speedup_mean", 0),
+                    "aggregated/checkpoint_speedup_std": aggregated["comparison"].get("single_gpu_speedup_std", 0),
+                    "aggregated/recovery_speedup_mean": aggregated["comparison"].get("recovery_speedup_mean", 0),
+                    "aggregated/recovery_speedup_std": aggregated["comparison"].get("recovery_speedup_std", 0),
+                })
+            
+            # Save aggregated results
+            results_dir = Path("./results")
+            results_dir.mkdir(exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            aggregated_file = results_dir / f"aggregated_results_{args.num_runs}runs_{timestamp}.json"
+            with open(aggregated_file, "w") as f:
+                json.dump({
+                    "timestamp": timestamp,
+                    "num_runs": args.num_runs,
+                    "config": {
+                        "iterations": args.iterations,
+                        "checkpoint_freq": args.checkpoint_freq,
+                        "hidden_size": HIDDEN_SIZE,
+                        "num_layers": NUM_LAYERS,
+                        "num_heads": NUM_HEADS,
+                    },
+                    "aggregated": aggregated,
+                }, f, indent=2, default=str)
+            
+            print(f"\n💾 Aggregated results saved to: {aggregated_file}")
+        else:
+            # Single run - use existing save logic
+            run = all_runs[0]
+            save_final_results(
+                run["baseline"], 
+                run["gemini_single"], 
+                run["gemini_multi"], 
+                run["multi_disk"], 
+                run["failure_results"], 
+                run["comparison"]
             )
-
-        # Compare results
-        comparison = compare_results(
-            baseline, gemini_single, gemini_multi, multi_disk, failure_results
-        )
-
-        # Save everything
-        save_final_results(
-            baseline, gemini_single, gemini_multi, multi_disk, failure_results, comparison
-        )
 
         # Finish wandb
         if exp_logger:
