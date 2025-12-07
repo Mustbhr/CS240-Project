@@ -9,12 +9,10 @@ The Gemini reproduction system implements fast failure recovery for distributed 
 | Component | File | Status | Lines |
 |-----------|------|--------|-------|
 | Baseline Trainer | `src/training/baseline_trainer.py` | Complete | 773 |
-| In-Memory Checkpoint | `src/checkpointing/in_memory_checkpoint.py` | Complete | 464 |
 | Gemini Trainer | `src/training/gemini_trainer.py` | Complete | 400+ |
+| In-Memory Checkpoint | `src/checkpointing/in_memory_checkpoint.py` | Complete | 464 |
 | Data Loader | `src/utils/data_loader.py` | Complete | 310 |
 | Experiment Logger | `src/utils/experiment_logger.py` | Complete | 521 |
-| Worker Agent | `src/agents/worker_agent.py` | Complete | 170 |
-| Root Agent | `src/agents/root_agent.py` | Complete | 205 |
 
 ---
 
@@ -151,25 +149,6 @@ class ExperimentLogger:
 **Local Backup**: All metrics also saved as JSON in `./logs/`
 
 ---
-
-### 5. Worker Agent (Complete)
-**Location**: `src/agents/worker_agent.py`
-
-**Current Implementation**:
-- Checkpoint capture
-- Local storage management
-- Ring-topology replication
-
----
-
-### 6. Root Agent (Complete)
-**Location**: `src/agents/root_agent.py`
-
-**Current Implementation**:
-- Node registration
-- Basic checkpoint tracking
-- Recovery coordination logic
-- Heartbeat monitoring
 
 ---
 

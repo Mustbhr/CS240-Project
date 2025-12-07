@@ -54,37 +54,30 @@ This project reproduces the core Gemini system ([SOSP 2023](https://dl.acm.org/d
 ```
 .
 ├── README.md
-├── requirements.txt              # Main dependencies
-├── requirements-minimal.txt      # Minimal deps for testing
+├── Project_Report.tex            # LaTeX report source
+├── Presentation.tex              # LaTeX presentation source
+├── CS240_Project_Report.pdf      # Final report
+├── CS240_Project_Presentation.pdf # Final presentation
+├── requirements.txt              # Dependencies
 ├── docs/
-│   ├── architecture.md          # System architecture details
-│   └── milestones.md            # Project timeline and progress
+│   ├── architecture.md           # System architecture
+│   └── milestones.md             # Project progress
 ├── src/
-│   ├── agents/
-│   │   ├── worker_agent.py      # Worker node agent
-│   │   └── root_agent.py        # Root coordinator
 │   ├── checkpointing/
-│   │   └── in_memory_checkpoint.py  # RAM-based checkpointing
+│   │   └── in_memory_checkpoint.py  # RAM-based checkpointing (core)
 │   ├── training/
-│   │   ├── baseline_trainer.py  # Baseline with disk checkpointing
-│   │   └── gemini_trainer.py    # Gemini distributed trainer
+│   │   ├── baseline_trainer.py   # Disk-based checkpointing
+│   │   └── gemini_trainer.py     # Gemini with RAM checkpointing
 │   └── utils/
-│       ├── data_loader.py       # Dataset utilities
-│       └── experiment_logger.py # Experiment logging
-├── configs/
-│   ├── training_config.yaml.template
-│   └── cluster_config.yaml.template
+│       ├── data_loader.py        # Dataset utilities
+│       └── experiment_logger.py  # Metrics logging
 ├── scripts/
-│   ├── quick_test.py            # Quick verification test
-│   ├── run_baseline_test.py     # Full infrastructure test
 │   ├── run_multi_gpu_experiment.py  # Main experiment script
-│   ├── generate_figures.py      # Results visualization
-│   └── setup_environment.sh     # Environment setup
-├── tests/
-│   └── test_agents.py           # Unit tests
-├── logs/                        # Experiment logs (local)
-├── checkpoints/                 # Saved checkpoints
-└── results/                     # Experiment results
+│   ├── generate_figures.py       # Results visualization
+│   ├── quick_test.py             # Quick verification
+│   └── run_baseline_test.py      # Infrastructure test
+├── figures/                      # Generated plots
+└── results/                      # Experiment data (JSON)
 ```
 
 ## Installation
