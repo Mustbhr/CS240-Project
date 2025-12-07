@@ -34,9 +34,9 @@ from datetime import datetime
 
 CHECK_POINT_FRQ = 25
 
-HIDDEN_SIZE = 768
-NUM_LAYERS = 6
-NUM_HEADS = 12
+HIDDEN_SIZE = 1024
+NUM_LAYERS = 12
+NUM_HEADS = 16
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
