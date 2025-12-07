@@ -632,6 +632,27 @@ class GeminiTrainer:
 
         total_time = time.time() - start_time
 
+        # MEASURE RECOVERY TIME (key Gemini metric!)
+        # After training, measure how long it takes to load the last checkpoint
+        measured_recovery_ms = 0
+        latest_iter = self.checkpoint_manager.get_latest_iteration()
+        if latest_iter is not None and not self.config.use_disk_checkpoint:
+            # Measure RAM recovery
+            recovery_start = time.time()
+            self.checkpoint_manager.load(model, optimizer, latest_iter, self.device)
+            measured_recovery_ms = (time.time() - recovery_start) * 1000
+            if self.rank == 0:
+                logger.info(f"[RECOVERY MEASUREMENT] RAM load time: {measured_recovery_ms:.2f}ms")
+        elif self.config.use_disk_checkpoint:
+            # Measure DISK recovery
+            checkpoint_path = self.results_dir / f"checkpoint_{self.checkpoint_times[-1]['iteration'] if self.checkpoint_times else 0}.pt"
+            if checkpoint_path.exists():
+                recovery_start = time.time()
+                _ = torch.load(checkpoint_path, map_location=self.device)
+                measured_recovery_ms = (time.time() - recovery_start) * 1000
+                if self.rank == 0:
+                    logger.info(f"[RECOVERY MEASUREMENT] Disk load time: {measured_recovery_ms:.2f}ms")
+
         # Gather results
         final_loss = None
         if self.metrics_history:
@@ -645,7 +666,8 @@ class GeminiTrainer:
             "average_throughput": total_samples / total_time if total_time > 0 else 0,
             "checkpoint_times": self.checkpoint_times,
             "recovery_events": self.recovery_events,
-            "recovery_time_ms": recovery_time_ms,
+            "recovery_time_ms": recovery_time_ms,  # From failure simulation
+            "measured_recovery_ms": measured_recovery_ms,  # Actual measured recovery
             "final_loss": final_loss,
         }
 

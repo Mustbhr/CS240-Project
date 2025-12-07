@@ -353,13 +353,15 @@ def run_multi_gpu_disk_baseline(num_gpus=4, iterations=100, checkpoint_freq=CHEC
             results = json.load(f)
         
         checkpoint_times = [c["total_ms"] for c in results.get("checkpoint_times", [])]
+        measured_recovery_ms = results.get("measured_recovery_ms", 0)
         
         print(f"\n📊 Multi-GPU DISK Baseline Results:")
         print(f"   Total time: {total_time:.2f}s")
         print(f"   GPUs used: {num_gpus}")
-        print(f"   Checkpoint times: {checkpoint_times}")
+        print(f"   Checkpoint SAVE times: {checkpoint_times}")
         if checkpoint_times:
-            print(f"   Avg checkpoint time: {sum(checkpoint_times)/len(checkpoint_times):.2f}ms")
+            print(f"   Avg checkpoint SAVE: {sum(checkpoint_times)/len(checkpoint_times):.2f}ms")
+        print(f"   Disk RECOVERY time: {measured_recovery_ms:.2f}ms")
         
         return {
             "type": "multi_gpu_disk",
@@ -367,6 +369,7 @@ def run_multi_gpu_disk_baseline(num_gpus=4, iterations=100, checkpoint_freq=CHEC
             "num_gpus": num_gpus,
             "checkpoint_times_ms": checkpoint_times,
             "avg_checkpoint_ms": sum(checkpoint_times)/len(checkpoint_times) if checkpoint_times else 0,
+            "measured_recovery_ms": measured_recovery_ms,
         }
     else:
         print("⚠️ Results file not found")
@@ -408,15 +411,15 @@ def run_multi_gpu_gemini(num_gpus=4, iterations=100, checkpoint_freq=CHECK_POINT
             results = json.load(f)
 
         checkpoint_times = [c["total_ms"] for c in results.get("checkpoint_times", [])]
+        measured_recovery_ms = results.get("measured_recovery_ms", 0)
 
-        print(f"\n📊 Multi-GPU Gemini Results:")
+        print(f"\n📊 Multi-GPU Gemini (RAM) Results:")
         print(f"   Total time: {total_time:.2f}s")
         print(f"   GPUs used: {num_gpus}")
-        print(f"   Checkpoint times: {checkpoint_times}")
+        print(f"   Checkpoint SAVE times: {checkpoint_times}")
         if checkpoint_times:
-            print(
-                f"   Avg checkpoint time: {sum(checkpoint_times)/len(checkpoint_times):.2f}ms"
-            )
+            print(f"   Avg checkpoint SAVE: {sum(checkpoint_times)/len(checkpoint_times):.2f}ms")
+        print(f"   RAM RECOVERY time: {measured_recovery_ms:.2f}ms ⚡")
 
         # Log to wandb
         log_to_wandb(
@@ -439,6 +442,7 @@ def run_multi_gpu_gemini(num_gpus=4, iterations=100, checkpoint_freq=CHECK_POINT
             "avg_checkpoint_ms": (
                 sum(checkpoint_times) / len(checkpoint_times) if checkpoint_times else 0
             ),
+            "measured_recovery_ms": measured_recovery_ms,
             "raw_results": results,
         }
     else:
@@ -590,7 +594,21 @@ def compare_results(baseline, gemini_single, gemini_multi=None, multi_disk=None,
             else:
                 overhead = multi_ram_total_ms / multi_disk_ms
                 print(f"   ⚠️ RAM+Replication is {overhead:.1f}× SLOWER than Disk (due to replication)")
-                print(f"   BUT: Replication enables FAST RECOVERY from peer's RAM!")
+            
+            # MULTI-GPU RECOVERY COMPARISON (THE KEY METRIC!)
+            multi_disk_recovery = multi_disk.get("measured_recovery_ms", 0)
+            multi_ram_recovery = gemini_multi.get("measured_recovery_ms", 0)
+            
+            if multi_disk_recovery > 0 and multi_ram_recovery > 0:
+                recovery_speedup = multi_disk_recovery / multi_ram_recovery
+                print(f"\n   📦 Multi-GPU RECOVERY (Key Comparison!):")
+                print(f"      Disk Recovery:   {multi_disk_recovery:.2f} ms")
+                print(f"      RAM Recovery:    {multi_ram_recovery:.2f} ms")
+                print(f"      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print(f"      RECOVERY SPEEDUP: {recovery_speedup:.1f}× FASTER! ⚡")
+                comparison["multi_gpu_disk_recovery_ms"] = multi_disk_recovery
+                comparison["multi_gpu_ram_recovery_ms"] = multi_ram_recovery
+                comparison["multi_gpu_recovery_speedup"] = recovery_speedup
             
             comparison["multi_gpu_disk_ms"] = multi_disk_ms
             comparison["multi_gpu_ram_total_ms"] = multi_ram_total_ms
