@@ -421,12 +421,12 @@ def run_multi_gpu_gemini(num_gpus=4, iterations=100, checkpoint_freq=CHECK_POINT
             print(f"   Avg checkpoint SAVE: {sum(checkpoint_times)/len(checkpoint_times):.2f}ms")
         print(f"   RAM RECOVERY time: {measured_recovery_ms:.2f}ms ⚡")
 
-        # Log to wandb
+        # Log to wandb (will be updated later with recovery time)
         log_to_wandb(
             {
-                "multi_gpu/total_time": total_time,
-                "multi_gpu/num_gpus": num_gpus,
-                "multi_gpu/avg_checkpoint_ms": (
+                "multi_gpu_ram/total_time": total_time,
+                "multi_gpu_ram/num_gpus": num_gpus,
+                "multi_gpu_ram/avg_checkpoint_save_ms": (
                     sum(checkpoint_times) / len(checkpoint_times)
                     if checkpoint_times
                     else 0
@@ -655,14 +655,34 @@ def compare_results(baseline, gemini_single, gemini_multi=None, multi_disk=None,
             comparison["ram_recovery_ms"] = ram_recovery
             comparison["recovery_speedup"] = recovery_speedup
 
-        # Log comparison to wandb
+        # Log comprehensive comparison to wandb
         if exp_logger:
-            exp_logger.log_comparison(
-                disk_save_time_ms=baseline["avg_checkpoint_ms"],
-                disk_load_time_ms=baseline["avg_checkpoint_ms"] * 0.7,
-                memory_save_time_ms=gemini_single["avg_checkpoint_ms"],
-                memory_load_time_ms=gemini_single["avg_checkpoint_ms"] * 0.5,
-            )
+            # Single-GPU comparison
+            log_to_wandb({
+                "comparison/single_gpu_checkpoint_speedup": comparison.get("single_gpu_speedup", 0),
+                "comparison/single_gpu_recovery_speedup": comparison.get("recovery_speedup", 0),
+                "comparison/single_disk_save_ms": comparison.get("single_disk_ms", 0),
+                "comparison/single_ram_save_ms": comparison.get("single_ram_ms", 0),
+                "comparison/single_disk_recovery_ms": comparison.get("disk_recovery_ms", 0),
+                "comparison/single_ram_recovery_ms": comparison.get("ram_recovery_ms", 0),
+            })
+            
+            # Multi-GPU comparison
+            if "multi_gpu_recovery_speedup" in comparison:
+                log_to_wandb({
+                    "comparison/multi_gpu_checkpoint_disk_ms": comparison.get("multi_gpu_disk_ms", 0),
+                    "comparison/multi_gpu_checkpoint_ram_ms": comparison.get("multi_gpu_ram_total_ms", 0),
+                    "comparison/multi_gpu_recovery_speedup": comparison.get("multi_gpu_recovery_speedup", 0),
+                    "comparison/multi_gpu_disk_recovery_ms": comparison.get("multi_gpu_disk_recovery_ms", 0),
+                    "comparison/multi_gpu_ram_recovery_ms": comparison.get("multi_gpu_ram_recovery_ms", 0),
+                    "comparison/multi_gpu_replication_ms": comparison.get("multi_gpu_replication_ms", 0),
+                })
+            
+            # Failure simulation
+            if "failure_recovery_ms" in comparison:
+                log_to_wandb({
+                    "comparison/failure_recovery_ms": comparison.get("failure_recovery_ms", 0),
+                })
 
         return comparison
     else:
@@ -765,8 +785,10 @@ def main():
         # Log baseline to wandb
         log_to_wandb(
             {
-                "baseline/avg_checkpoint_ms": baseline["avg_checkpoint_ms"],
+                "baseline/avg_checkpoint_save_ms": baseline["avg_checkpoint_ms"],
+                "baseline/disk_recovery_ms": baseline.get("disk_recovery_ms", 0),
                 "baseline/throughput": baseline["throughput"],
+                "baseline/total_time": baseline.get("total_time", 0),
             }
         )
 
@@ -782,9 +804,11 @@ def main():
         # Log gemini to wandb
         log_to_wandb(
             {
-                "gemini/avg_checkpoint_ms": gemini_single["avg_checkpoint_ms"],
-                "gemini/throughput": gemini_single["throughput"],
-                "gemini/memory_mb": gemini_single.get("memory_mb", 0),
+                "gemini_single/avg_checkpoint_save_ms": gemini_single["avg_checkpoint_ms"],
+                "gemini_single/ram_recovery_ms": gemini_single.get("ram_recovery_ms", 0),
+                "gemini_single/throughput": gemini_single["throughput"],
+                "gemini_single/memory_mb": gemini_single.get("memory_mb", 0),
+                "gemini_single/total_time": gemini_single.get("total_time", 0),
             }
         )
 
@@ -807,6 +831,17 @@ def main():
                 num_gpus, args.iterations, args.checkpoint_freq
             )
             
+            # Log multi-GPU disk to wandb
+            if multi_disk:
+                log_to_wandb(
+                    {
+                        "multi_gpu_disk/avg_checkpoint_save_ms": multi_disk.get("avg_checkpoint_ms", 0),
+                        "multi_gpu_disk/disk_recovery_ms": multi_disk.get("measured_recovery_ms", 0),
+                        "multi_gpu_disk/num_gpus": multi_disk.get("num_gpus", 0),
+                        "multi_gpu_disk/total_time": multi_disk.get("total_time", 0),
+                    }
+                )
+            
             # Clear memory between experiments
             gc.collect()
             torch.cuda.empty_cache()
@@ -818,6 +853,17 @@ def main():
             gemini_multi = run_multi_gpu_gemini(
                 num_gpus, args.iterations, args.checkpoint_freq
             )
+            
+            # Log multi-GPU RAM to wandb (update existing log)
+            if gemini_multi:
+                log_to_wandb(
+                    {
+                        "multi_gpu_ram/avg_checkpoint_save_ms": gemini_multi.get("avg_checkpoint_ms", 0),
+                        "multi_gpu_ram/ram_recovery_ms": gemini_multi.get("measured_recovery_ms", 0),
+                        "multi_gpu_ram/num_gpus": gemini_multi.get("num_gpus", 0),
+                        "multi_gpu_ram/total_time": gemini_multi.get("total_time", 0),
+                    }
+                )
 
         # Experiment 4: Failure simulation
         failure_results = None
