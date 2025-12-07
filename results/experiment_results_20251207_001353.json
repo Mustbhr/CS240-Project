@@ -1,0 +1,134 @@
+{
+  "timestamp": "20251207_001353",
+  "environment": {
+    "pytorch_version": "2.8.0+cu129",
+    "cuda_available": true,
+    "num_gpus": 4,
+    "gpu_names": [
+      "NVIDIA A100-SXM4-40GB",
+      "NVIDIA A100-SXM4-40GB",
+      "NVIDIA A100-SXM4-40GB",
+      "NVIDIA A100-SXM4-40GB"
+    ]
+  },
+  "experiments": {
+    "baseline_single_disk": {
+      "type": "baseline_single",
+      "total_time": 11.164932489395142,
+      "iterations": 100,
+      "throughput": 84.44954212371933,
+      "checkpoint_times_ms": [
+        1745.3486919403076,
+        1694.5934295654297,
+        1698.718786239624
+      ],
+      "avg_checkpoint_ms": 1712.8869692484539,
+      "disk_recovery_ms": 313.4174346923828
+    },
+    "gemini_single_ram": {
+      "type": "gemini_single",
+      "total_time": 4.317906141281128,
+      "iterations": 100,
+      "throughput": 185.2749860289087,
+      "checkpoint_times_ms": [
+        152.47821807861328,
+        152.46057510375977,
+        152.144193649292
+      ],
+      "avg_checkpoint_ms": 152.36099561055502,
+      "ram_recovery_ms": 24.929046630859375,
+      "memory_mb": 1472.53125
+    },
+    "multi_gpu_disk": {
+      "type": "multi_gpu_disk",
+      "total_time": 18.832238912582397,
+      "num_gpus": 4,
+      "checkpoint_times_ms": [
+        1416.5704250335693,
+        1322.1423625946045,
+        1388.148307800293
+      ],
+      "avg_checkpoint_ms": 1375.6203651428223,
+      "measured_recovery_ms": 374.34840202331543
+    },
+    "multi_gpu_ram": {
+      "type": "gemini_multi",
+      "total_time": 26.682117700576782,
+      "num_gpus": 4,
+      "checkpoint_times_ms": [
+        3333.1995010375977,
+        2875.910997390747,
+        2908.747434616089
+      ],
+      "avg_checkpoint_ms": 3039.285977681478,
+      "measured_recovery_ms": 49.881935119628906,
+      "raw_results": {
+        "rank": 0,
+        "total_iterations": 100,
+        "total_time": 19.566192150115967,
+        "total_samples": 800,
+        "average_throughput": 40.88685186479979,
+        "checkpoint_times": [
+          {
+            "iteration": 25,
+            "type": "gemini",
+            "local_save_ms": 154.63900566101074,
+            "checkpoint_size_mb": 539.9998445510864,
+            "replication_ms": 3178.560495376587,
+            "total_ms": 3333.1995010375977,
+            "timestamp": 1765066379.9001307
+          },
+          {
+            "iteration": 50,
+            "type": "gemini",
+            "local_save_ms": 151.20601654052734,
+            "checkpoint_size_mb": 539.9998445510864,
+            "replication_ms": 2724.7049808502197,
+            "total_ms": 2875.910997390747,
+            "timestamp": 1765066385.4280312
+          },
+          {
+            "iteration": 75,
+            "type": "gemini",
+            "local_save_ms": 230.60894012451172,
+            "checkpoint_size_mb": 539.9998445510864,
+            "replication_ms": 2678.138494491577,
+            "total_ms": 2908.747434616089,
+            "timestamp": 1765066391.071503
+          }
+        ],
+        "recovery_events": [],
+        "recovery_time_ms": 0,
+        "measured_recovery_ms": 49.881935119628906,
+        "final_loss": 10.883273124694824
+      }
+    },
+    "failure_simulation": {
+      "type": "failure_simulation",
+      "total_time": 38.941118001937866,
+      "failure_iteration": 50,
+      "recovery_events": [
+        {
+          "failed_rank": 1,
+          "recovered_from_iteration": 25,
+          "recovery_time_ms": 99.51663017272949
+        }
+      ]
+    }
+  },
+  "comparison": {
+    "single_gpu_speedup": 11.242293097287893,
+    "single_disk_ms": 1712.8869692484539,
+    "single_ram_ms": 152.36099561055502,
+    "multi_gpu_disk_recovery_ms": 374.34840202331543,
+    "multi_gpu_ram_recovery_ms": 49.881935119628906,
+    "multi_gpu_recovery_speedup": 7.50468884427875,
+    "multi_gpu_disk_ms": 1375.6203651428223,
+    "multi_gpu_ram_total_ms": 3039.285977681478,
+    "multi_gpu_ram_save_ms": 152.36099561055502,
+    "multi_gpu_replication_ms": 2886.924982070923,
+    "disk_recovery_ms": 313.4174346923828,
+    "ram_recovery_ms": 24.929046630859375,
+    "recovery_speedup": 12.572379495026778
+  }
+}

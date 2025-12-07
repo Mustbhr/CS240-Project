@@ -51,9 +51,9 @@ checkpoints/
 # Logs and Results
 logs/
 *.log
-results/*.csv
-results/*.json
-results/*.png
+#results/*.csv
+#results/*.json
+#results/*.png
 wandb/
 tensorboard/
 
